@@ -1,0 +1,86 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{amsmath}
+
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-20pt}{40pt}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \includegraphics[width=0.3\textwidth]{uclm.png}
+    \vfill
+    {\Large \textbf{Universidad de Castilla-La Mancha}} \\
+    {\large Escuela Superior de Informática} \\
+    \vspace{1cm}
+    {\Large \textbf{Desarrollo e Integración de Servicios de IA}} \\
+    \vspace{1.5cm}
+    {\huge \textbf{GuardianAI: Fraud detection in Transactions}} \\
+    \vfill
+    {\large \textbf{Autores:}} \\
+    {\large David Miguel Miranda Rodríguez} \\
+    {\large Alejandro Córcoles Roldán} \\
+    {\large Gonzalo Torres Aparicio} \\
+    {\large Antonio César García Fuentes} \\
+    \vfill
+    {\large 2026}
+\end{titlepage}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% --- CAPÍTULO 1 ---
+\chapter{Hito 1: Definición del problema y determinación del alcance}
+
+\section{Contexto y definición del problema}
+En el contexto de la seguridad y supervisión inteligente, el proyecto \textbf{GuardianAI} surge de la necesidad de...
+
+\section{Objetivos generales y específicos}
+El objetivo principal es diseñar, implementar y validar un sistema de IA capaz de...
+
+\section{Determinación del alcance}
+
+\subsection{Planificación}
+Se estima una duración inicial de 12 semanas para las fases de desarrollo y despliegue.
+
+\subsection{Recursos Humanos}
+El equipo técnico se divide en los siguientes roles:
+\begin{itemize}
+    \item \textbf{ML Engineer:} Responsable del diseño de modelos.
+    \item \textbf{Data Analyst:} Encargado del procesamiento de datos.
+    \item \textbf{Domain Expert:} Especialista en el área de aplicación.
+\end{itemize}
+
+\subsection{Viabilidad. Estudio del ROI}
+Para calcular el retorno de inversión, se utiliza la siguiente fórmula:
+\begin{equation}
+ROI = \frac{\text{Beneficio} - \text{Coste}}{\text{Coste}}
+\end{equation}
+
+Considerando un coste de 18.000€ y un beneficio proyectado de 24.000€, obtenemos un $ROI = 0,33$ (33\%).
+
+\subsection{Valor}
+El sistema aporta valor en cuatro dimensiones clave:
+\begin{enumerate}
+    \item \textbf{Valor Técnico:} Optimización de procesos.
+    \item \textbf{Valor Social:} Transparencia y ética.
+    \item \textbf{Valor Organizativo:} Escalabilidad.
+    \item \textbf{Valor Tecnológico:} Innovación en modelos bioinspirados.
+\end{enumerate}
+
+% --- REFERENCIAS ---
+\begin{thebibliography}{9}
+\end{thebibliography}
+
+\end{document}
