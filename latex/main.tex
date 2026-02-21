@@ -71,6 +71,7 @@ Los \textbf{objetivos específicos} son los siguientes:
     \item Integrar una capa de explicabilidad mediante la librería SHAP (\textit{SHapley Additive exPlanations}), permitiendo justificar de forma interpretable el motivo del bloqueo de una operación.
     \item Empaquetar el modelo como un microservicio mediante FastAPI y Docker.
     \item Diseñar un sistema de monitorización capaz de detectar \textit{Data Drift}, simulando ataques de fraude emergentes como el \textit{Carding} (micro-fraudes iterativos).
+    \item Asegurar el sistema desde el diseño, para evitar futuras fugas de datos.
 \end{itemize}
 
 \section{Determinación del alcance}
@@ -79,7 +80,13 @@ Los \textbf{objetivos específicos} son los siguientes:
 El proyecto se desarrollará a lo largo de 12 semanas, estructurado en 5 grandes hitos iterativos: definición del problema, ingeniería de datos, modelado, despliegue en API y monitorización de drift en producción.
 
 \subsection{Recursos Humanos: asignación de tareas y capacidad}
-El desarrollo de GuardianAI refleja un escenario realista de producto de IA, donde interactúan perfiles de modelado, ingeniería de datos, operaciones y negocio. El equipo técnico está formado por cuatro ingenieros junior con roles específicos:
+El desarrollo de GuardianAI refleja un escenario realista de producto de IA, donde interactúan perfiles de modelado, ingeniería de datos, operaciones y negocio, así como un grupo de expertos en el dominio bancario conformado por desarolladores del sistema bancario, así como de algunos técnicos encargados de la derección de fraudes, además se caontado con la colaboración de la Brigada Central de Investigación Teconológca (B.C.I.T) de la Policía Nacional.
+
+El equipo bancario ha colaborado como fuente fundamental de conocimiento acerca del sistema bancario, y junto con la BCIT, definir lo que es un fraude bancario, además de actuár de stakeholder y cliente del sistema.
+
+La brigada BICT ha colaborado aportando definiciones expertas de fraude bancario, así como fuente de conocimiento acerca de los métodos usados para cometer estos fraudes.
+
+El equipo técnico está formado por cuatro ingenieros junior con roles específicos:
 
 \textbf{David Miguel Miranda Rodríguez. Rol principal: Analista / Ingeniero de Datos.}
 Responsable del diseño del \textit{pipeline} de ingesta y preprocesamiento. Su labor incluye la limpieza de los datos tabulares, el escalado de variables no estandarizadas (Monto y Tiempo) y la aplicación de técnicas de \textit{resampling} (SMOTE) para generar un espacio de entrenamiento equilibrado sin introducir ruido artificial.
