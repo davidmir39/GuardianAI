@@ -1,31 +1,39 @@
 \documentclass[12pt,a4paper]{report}
 
+% --- Paquetes de Formato ---
 \usepackage[utf8]{inputenc}
-\usepackage[spanish]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel} % es-tabla cambia "Cuadro" por "Tabla"
 \usepackage{graphicx}
 \usepackage{geometry}
 \geometry{margin=2.5cm}
-\usepackage{hyperref}
-\usepackage{titlesec}
-\usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{eurosym}
+\usepackage{booktabs}
 
+% --- Configuración de Títulos ---
 \titleformat{\chapter}[display]
   {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
 \titlespacing*{\chapter}{0pt}{-20pt}{40pt}
 
 \begin{document}
 
+% --- PORTADA ---
 \begin{titlepage}
     \centering
-    \includegraphics[width=0.3\textwidth]{uclm.png}
+    {\Large \textbf{UCLM} --- Universidad de Castilla-La Mancha} \\
+    \vspace{0.5cm}
+    \includegraphics[width=0.25\textwidth]{uclm.png} 
     \vfill
-    {\Large \textbf{Universidad de Castilla-La Mancha}} \\
     {\large Escuela Superior de Informática} \\
-    \vspace{1cm}
-    {\Large \textbf{Desarrollo e Integración de Servicios de IA}} \\
     \vspace{1.5cm}
-    {\huge \textbf{GuardianAI: Fraud detection in Transactions}} \\
+    {\Large \textbf{Desarrollo e Integración de Servicios de IA}} \\
+    \vspace{1cm}
+    {\huge \textbf{GuardianAI: Detección Inteligente de Fraude en Transacciones en Tiempo Real}} \\
+    \vspace{0.5cm}
+    {\Large \textit{A Data-Driven and Explainable Approach}} \\
     \vfill
     {\large \textbf{Autores:}} \\
     {\large David Miguel Miranda Rodríguez} \\
@@ -36,51 +44,78 @@
     {\large 2026}
 \end{titlepage}
 
+% --- ÍNDICES ---
 \tableofcontents
-\listoffigures
-\listoftables
 
 % --- CAPÍTULO 1 ---
 \chapter{Hito 1: Definición del problema y determinación del alcance}
 
+En este capítulo se detalla la definición del problema seleccionado para el desarrollo del proyecto \textbf{GuardianAI}, así como la determinación de su alcance técnico, organizativo y económico.
+
 \section{Contexto y definición del problema}
-En el contexto de la seguridad y supervisión inteligente, el proyecto \textbf{GuardianAI} surge de la necesidad de...
+En el ecosistema de la banca digital contemporánea, la seguridad en las transacciones con tarjeta de crédito no es solo una necesidad técnica, sino un pilar fundamental de la confianza del usuario. El fraude financiero genera pérdidas millonarias anuales que impactan directamente en la cuenta de resultados de las entidades y erosionan la reputación del sector. 
+
+Históricamente, la detección de anomalías en entidades bancarias se ha basado en sistemas de reglas estáticas (por ejemplo, bloquear transacciones superiores a cierta cantidad en el extranjero). Estos enfoques presentan limitaciones evidentes: son inflexibles, no capturan patrones de comportamiento complejos y, lo más crítico, generan un volumen inaceptable de \textit{falsos positivos}. Bloquear la tarjeta de un cliente legítimo genera un alto nivel de frustración y fricción, siendo una de las principales causas de abandono en neobancos como \textbf{NovaBank}.
+
+El problema que se aborda en este proyecto consiste en utilizar datos históricos de transacciones para generar un sistema predictivo que evalúe el riesgo en tiempo real. Para ello, se utilizará un conjunto de datos (basado en el \textit{Credit Card Fraud Detection} de Kaggle) compuesto por variables numéricas resultantes de una transformación PCA, así como el importe (\textit{Amount}) y el tiempo (\textit{Time}) de la transacción. El mayor reto analítico radica en el \textbf{extremo desbalanceo de clases}: los fraudes representan únicamente el $0,17\%$ de las operaciones. 
 
 \section{Objetivos generales y específicos}
-El objetivo principal es diseñar, implementar y validar un sistema de IA capaz de...
+El problema principal puede formularse de la siguiente manera: \textit{¿Cómo diseñar un sistema de inteligencia artificial capaz de evaluar en tiempo real el riesgo de fraude en transacciones bancarias, equilibrando la detección precisa de ilícitos y la minimización de bloqueos a clientes legítimos, manteniendo un alto grado de explicabilidad en sus decisiones?}
+
+Para dar respuesta a esta pregunta, el \textbf{objetivo general} del proyecto es diseñar, implementar y desplegar \textbf{GuardianAI}, un sistema que reduzca el fraude no detectado en un 15\% (fase MVP) para NovaBank, garantizando su integración en un entorno web real y su monitorización continua.
+
+Los \textbf{objetivos específicos} son los siguientes:
+\begin{itemize}
+    \item Construir un \textit{pipeline} de datos automatizado que aplique técnicas de sobremuestreo sintético (SMOTE) para mitigar el desbalanceo extremo de las clases.
+    \item Implementar y entrenar un modelo basado en \textit{Extreme Gradient Boosting} (XGBoost), priorizando métricas robustas de la industria como el AUPRC (Área bajo la curva Precision-Recall) y el $F_1$-Score, descartando la exactitud (\textit{Accuracy}) como métrica principal.
+    \item Integrar una capa de explicabilidad mediante la librería SHAP (\textit{SHapley Additive exPlanations}), permitiendo justificar de forma interpretable el motivo del bloqueo de una operación.
+    \item Empaquetar el modelo como un microservicio mediante FastAPI y Docker.
+    \item Diseñar un sistema de monitorización capaz de detectar \textit{Data Drift}, simulando ataques de fraude emergentes como el \textit{Carding} (micro-fraudes iterativos).
+\end{itemize}
 
 \section{Determinación del alcance}
 
 \subsection{Planificación}
-Se estima una duración inicial de 12 semanas para las fases de desarrollo y despliegue.
+El proyecto se desarrollará a lo largo de 12 semanas, estructurado en 5 grandes hitos iterativos: definición del problema, ingeniería de datos, modelado, despliegue en API y monitorización de drift en producción.
 
-\subsection{Recursos Humanos}
-El equipo técnico se divide en los siguientes roles:
-\begin{itemize}
-    \item \textbf{ML Engineer:} Responsable del diseño de modelos.
-    \item \textbf{Data Analyst:} Encargado del procesamiento de datos.
-    \item \textbf{Domain Expert:} Especialista en el área de aplicación.
-\end{itemize}
+\subsection{Recursos Humanos: asignación de tareas y capacidad}
+El desarrollo de GuardianAI refleja un escenario realista de producto de IA, donde interactúan perfiles de modelado, ingeniería de datos, operaciones y negocio. El equipo técnico está formado por cuatro ingenieros junior con roles específicos:
+
+\textbf{David Miguel Miranda Rodríguez. Rol principal: Analista / Ingeniero de Datos.}
+Responsable del diseño del \textit{pipeline} de ingesta y preprocesamiento. Su labor incluye la limpieza de los datos tabulares, el escalado de variables no estandarizadas (Monto y Tiempo) y la aplicación de técnicas de \textit{resampling} (SMOTE) para generar un espacio de entrenamiento equilibrado sin introducir ruido artificial.
+
+\textbf{Alejandro Córcoles Roldán. Rol principal: Machine Learning Engineer.}
+Encargado del núcleo algorítmico del sistema. Sus tareas abarcan la selección del modelo (XGBoost), la optimización de hiperparámetros y la validación cruzada. Su principal desafío es garantizar que el modelo no caiga en la "trampa del Accuracy" y logre maximizar la identificación de fraudes (Recall) sin penalizar severamente las transacciones legítimas (Precision).
+
+\textbf{Gonzalo Torres Aparicio. Rol principal: Analista de Negocio y Explicabilidad (Domain Expert).}
+Ejerce de puente entre el modelo matemático y los requisitos de NovaBank. Es el responsable de implementar SHAP para desgranar la caja negra del modelo de XGBoost. Su labor asegura que si un cliente reclama un bloqueo, el banco pueda darle una respuesta basada en datos (ej. \textit{"Comportamiento atípico combinado con un monto inusual para la franja horaria"}).
+
+\textbf{Antonio César García Fuentes. Rol principal: DevOps y MLOps Engineer.}
+Responsable de sacar el modelo del entorno de desarrollo (\textit{notebooks}) y llevarlo a producción. Sus tareas incluyen el empaquetado del sistema en contenedores Docker, el desarrollo de la API con FastAPI y la configuración de \textit{dashboards} para monitorizar la caída de rendimiento ante cambios de comportamiento de los estafadores (\textit{Data Drift}).
 
 \subsection{Viabilidad. Estudio del ROI}
-Para calcular el retorno de inversión, se utiliza la siguiente fórmula:
+Para evaluar la viabilidad de GuardianAI, se realiza una estimación del Retorno de Inversión (ROI) considerando un escenario de 12 semanas de desarrollo:
+\begin{itemize}
+    \item \textbf{Horas totales:} 4 personas $\times$ 10 horas/semana $\times$ 12 semanas = 480 horas.
+    \item \textbf{Coste humano:} 480 horas $\times$ 35 \euro/hora = 16.800 \euro.
+    \item \textbf{Coste infraestructura:} 1.500 \euro\ (Despliegue cloud y servicios de ingesta).
+    \item \textbf{Coste Total = 18.300 \euro.}
+\end{itemize}
+
+Se estima que, al lograr el MVP (reducción del 15\% en fraudes exitosos) y ahorrar más de 200 horas mensuales en auditorías manuales, NovaBank obtendrá un beneficio semestral de 26.000 \euro. El ROI se calcula mediante la siguiente fórmula:
+
 \begin{equation}
-ROI = \frac{\text{Beneficio} - \text{Coste}}{\text{Coste}}
+ROI = \frac{26000 - 18300}{18300} = 0.42
 \end{equation}
 
-Considerando un coste de 18.000€ y un beneficio proyectado de 24.000€, obtenemos un $ROI = 0,33$ (33\%).
+Un ROI del 42\% en la fase inicial demuestra que el proyecto es financieramente viable y fácilmente amortizable a corto plazo.
 
 \subsection{Valor}
-El sistema aporta valor en cuatro dimensiones clave:
+La implementación de GuardianAI aporta un valor multidimensional a NovaBank:
 \begin{enumerate}
-    \item \textbf{Valor Técnico:} Optimización de procesos.
-    \item \textbf{Valor Social:} Transparencia y ética.
-    \item \textbf{Valor Organizativo:} Escalabilidad.
-    \item \textbf{Valor Tecnológico:} Innovación en modelos bioinspirados.
+    \item \textbf{Valor Económico y Organizativo:} Genera ahorros directos por reducción de contracargos y optimiza el tiempo de los analistas humanos, quienes solo revisarán las alertas marcadas como dudosas por la IA.
+    \item \textbf{Valor Social y de Usuario:} Reduce la fricción con los clientes honestos al minimizar los falsos positivos. Un cliente no frustrado es un cliente fidelizado.
+    \item \textbf{Valor Tecnológico y Estratégico:} Introduce la cultura MLOps en el banco. Al disponer de una infraestructura que monitoriza el \textit{Data Drift}, la entidad no solo reacciona al fraude actual, sino que se prepara tecnológicamente para readaptarse a ataques futuros.
 \end{enumerate}
-
-% --- REFERENCIAS ---
-\begin{thebibliography}{9}
-\end{thebibliography}
 
 \end{document}
