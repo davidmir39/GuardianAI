@@ -12,6 +12,8 @@
 \usepackage{hyperref}
 \usepackage{eurosym}
 \usepackage{booktabs}
+\usepackage{float}
+\usepackage{url}
 
 % --- Configuración de Títulos ---
 \titleformat{\chapter}[display]
@@ -130,6 +132,333 @@ La implementación de GuardianAI aporta un valor multidimensional a NovaBank:
     \item \textbf{Valor Tecnológico y Estratégico:} Introduce la cultura MLOps en el banco. Al disponer de una infraestructura que monitoriza el \textit{Data Drift}, la entidad no solo reacciona al fraude actual, sino que se prepara tecnológicamente para readaptarse a ataques futuros.
 \end{enumerate}
 
+% --- CAPÍTULO 2 ---
+% =============================================================================
+% CAPÍTULO 2 — Hito 2: Los datos: origen, descripción y análisis
+% =============================================================================
+\chapter{Hito 2: Los datos: origen, descripción y análisis}
+\label{ch:hito2}
+
+% -----------------------------------------------------------------------------
+\section{Introducción}
+\label{sec:h2_intro}
+
+En este segundo hito se describen y analizan los \textbf{datos} de los que se dispone para abordar el proyecto descrito en el capítulo anterior, consistente en diseñar, implementar y desplegar un sistema inteligente de detección de fraude en aperturas de cuentas bancarias para NovaBank. El sistema desarrollado debe ser capaz de asignar una \textbf{puntuación de riesgo} (\textit{fraud risk scoring}) a cada solicitud \cite{fraudrisk2024}, permitiendo a los analistas priorizar la revisión de las operaciones más sospechosas.
+
+El presente capítulo se organiza de la siguiente manera: en primer lugar, se describen las fuentes, el origen y el tamaño del conjunto de datos utilizado (\S\ref{sec:h2_fuentes}). A continuación, se realiza un inventario detallado de las variables disponibles, incluyendo sus tipos, descripciones y las limitaciones identificadas (\S\ref{sec:h2_inventario}). Posteriormente, se presenta un análisis exploratorio exhaustivo de los datos (\S\ref{sec:h2_analisis}), cuyas visualizaciones han sido generadas en el cuaderno de Jupyter asociado a este hito. Finalmente, se discuten las métricas de evaluación seleccionadas para medir el rendimiento del sistema (\S\ref{sec:h2_metricas}) y se resumen las conclusiones del análisis (\S\ref{sec:h2_conclusiones}).
+
+% -----------------------------------------------------------------------------
+\section{Fuentes, origen y tamaño de los datos}
+\label{sec:h2_fuentes}
+
+Los datos utilizados en este proyecto provienen del \textbf{Bank Account Fraud Dataset Suite}, un conjunto de datos publicado en la conferencia NeurIPS 2022 por Jesus et al.\ \cite{jesus2022bank} y disponible públicamente en la plataforma Kaggle\footnote{\url{https://www.kaggle.com/datasets/sgpjesus/bank-account-fraud-dataset-neurips-2022}}. Este dataset fue diseñado específicamente para la investigación en detección de fraude financiero, abordando las carencias de los conjuntos de datos tradicionales en este dominio.
+
+\subsection*{Justificación de la elección del dataset}
+La selección de este dataset se fundamenta en varias razones:
+
+\begin{itemize}
+    \item \textbf{Validación académica:} Al haber sido presentado en NeurIPS, el dataset ha sido revisado por la comunidad científica y cumple con estándares de calidad y reproducibilidad.
+    \item \textbf{Realismo controlado:} Aunque los datos son sintéticos, fueron generados a partir de patrones reales de fraude bancario, lo que garantiza que las distribuciones, correlaciones y patrones de comportamiento reflejan escenarios verosímiles.
+    \item \textbf{Privacidad:} Al tratarse de datos simulados, no existe riesgo de exposición de información personal, lo que permite un análisis y publicación sin restricciones éticas ni legales.
+    \item \textbf{Desafíos realistas:} El dataset incorpora intencionadamente desbalanceo de clases, ruido en los datos y variables con distribuciones complejas, características habituales en los datos de fraude del mundo real.
+\end{itemize}
+
+Dado que NovaBank es un gemelo digital representativo de una entidad financiera europea (véase la nota del Capítulo~1), este dataset constituye una fuente de datos coherente con el escenario simulado del proyecto.
+
+\subsection*{Características generales del dataset}
+El conjunto de datos presenta las siguientes características:
+
+\begin{itemize}
+    \item \textbf{Número de registros:} 1.000.000 de solicitudes de apertura de cuenta.
+    \item \textbf{Número de variables:} 32 columnas (30 variables predictoras + 1 variable objetivo + 1 variable temporal).
+    \item \textbf{Formato:} Datos tabulares estructurados en formato CSV.
+    \item \textbf{Tipos de variables:} Combinación de variables numéricas continuas, discretas enteras, binarias y categóricas.
+    \item \textbf{Variable objetivo:} \texttt{fraud\_bool} (binaria: 0 = legítima, 1 = fraudulenta).
+\end{itemize}
+
+Se trata, por tanto, de un problema de \textbf{datos tabulares estructurados} con un volumen considerable (1 millón de registros), lo que permite aplicar técnicas de aprendizaje automático supervisado sin restricciones de tamaño muestral.
+
+% -----------------------------------------------------------------------------
+\section{Inventario de datos}
+\label{sec:h2_inventario}
+
+En esta sección se define el conjunto de datos con el que se va a trabajar para el desarrollo del sistema. Se presenta un diccionario de variables y se identifican las limitaciones del dataset que condicionarán las decisiones de modelado.
+
+\subsection{Diccionario de variables}
+
+La Tabla~\ref{tab:diccionario} recoge las 32 variables del dataset, clasificadas por tipo y con una breve descripción de su significado en el contexto de la detección de fraude en aperturas de cuentas bancarias.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Inventario de datos: diccionario de variables del dataset.}
+\label{tab:diccionario}
+\begin{tabular}{l l p{7.5cm}}
+\toprule
+\textbf{Variable} & \textbf{Tipo} & \textbf{Descripción} \\
+\midrule
+\texttt{fraud\_bool}            & Binaria     & Variable objetivo: 1 = fraude, 0 = legítima. \\
+\texttt{income}                 & Continua    & Ingresos anuales declarados por el solicitante. \\
+\texttt{name\_email\_similarity} & Continua    & Similitud entre el nombre del solicitante y su email. \\
+\texttt{prev\_address\_months\_count} & Entera & Meses en la dirección anterior (-1 = no disponible). \\
+\texttt{current\_address\_months\_count} & Entera & Meses en la dirección actual (-1 = no disponible). \\
+\texttt{customer\_age}          & Entera      & Rango de edad del solicitante (10--90 en intervalos de 10). \\
+\texttt{days\_since\_request}   & Continua    & Días transcurridos desde la solicitud. \\
+\texttt{intended\_balcon\_amount} & Continua  & Importe previsto de la primera operación con la cuenta. \\
+\texttt{payment\_type}          & Categórica  & Tipo de pago utilizado en la solicitud. \\
+\texttt{zip\_count\_4w}         & Entera      & Solicitudes desde el mismo código postal (4 semanas). \\
+\texttt{velocity\_6h}           & Continua    & Velocidad de transacciones en las últimas 6 horas. \\
+\texttt{velocity\_24h}          & Continua    & Velocidad de transacciones en las últimas 24 horas. \\
+\texttt{velocity\_4w}           & Continua    & Velocidad de transacciones en las últimas 4 semanas. \\
+\texttt{bank\_branch\_count\_8w} & Entera     & Solicitudes en la misma sucursal (8 semanas). \\
+\texttt{date\_of\_birth\_distinct\_emails\_4w} & Entera & Emails distintos con la misma fecha de nacimiento. \\
+\texttt{employment\_status}     & Categórica  & Situación laboral del solicitante. \\
+\texttt{credit\_risk\_score}    & Entera      & Puntuación de riesgo crediticio (\textbf{eliminada}). \\
+\texttt{email\_is\_free}        & Binaria     & Si el email proviene de un proveedor gratuito. \\
+\texttt{housing\_status}        & Categórica  & Tipo de vivienda del solicitante. \\
+\texttt{phone\_home\_valid}     & Binaria     & Si el teléfono fijo es válido. \\
+\texttt{phone\_mobile\_valid}   & Binaria     & Si el teléfono móvil es válido. \\
+\texttt{bank\_months\_count}    & Entera      & Meses como cliente del banco (-1 = no disponible). \\
+\texttt{has\_other\_cards}      & Binaria     & Si el solicitante posee otras tarjetas. \\
+\texttt{proposed\_credit\_limit} & Continua   & Límite de crédito propuesto. \\
+\texttt{foreign\_request}       & Binaria     & Si la solicitud proviene de una IP extranjera. \\
+\texttt{source}                 & Categórica  & Canal de origen de la solicitud (web, app...). \\
+\texttt{session\_length\_in\_minutes} & Continua & Duración de la sesión (-1 = no disponible). \\
+\texttt{device\_os}             & Categórica  & Sistema operativo del dispositivo. \\
+\texttt{keep\_alive\_session}   & Binaria     & Si la sesión se mantuvo activa. \\
+\texttt{device\_distinct\_emails\_8w} & Entera & Emails distintos desde el mismo dispositivo (8 sem.). \\
+\texttt{device\_fraud\_count}   & Entera      & Fraudes conocidos asociados al dispositivo. \\
+\texttt{month}                  & Entera      & Mes de la solicitud (0--7, abarcando 8 meses). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection*{Decisión de diseño: eliminación de \texttt{credit\_risk\_score}}
+
+Durante la fase de inspección inicial se detectó que la variable \texttt{credit\_risk\_score} presenta una correlación extremadamente alta con la variable objetivo. Tras analizar su naturaleza, se determinó que esta variable constituye una \textbf{fuga de datos} (\textit{data leakage}): se trata de una puntuación calculada a posteriori que incorpora información sobre el resultado de la solicitud. Incluirla en el modelo generaría resultados artificialmente optimistas que no serían reproducibles en un entorno de producción real. Por este motivo, \textbf{se ha eliminado del dataset} antes de cualquier análisis o entrenamiento.
+
+\subsection{Limitaciones del dataset}
+\label{subsec:limitaciones}
+
+Antes de comenzar con el análisis, es imprescindible identificar las limitaciones del conjunto de datos que condicionarán tanto el análisis como las decisiones de modelado:
+
+\begin{enumerate}
+    \item \textbf{Desbalanceo extremo de clases:} La variable objetivo presenta un desbalanceo severo: aproximadamente el 0,9\% de las solicitudes son fraudulentas. Esto implica que un modelo trivial que predijera siempre ``no fraude'' obtendría una exactitud del 99,1\%, pero sería completamente inútil. Las métricas de evaluación deben seleccionarse cuidadosamente (véase \S\ref{sec:h2_metricas}).
+
+    \item \textbf{Naturaleza sintética de los datos:} Aunque los datos están generados siguiendo patrones reales, no dejan de ser sintéticos. Los patrones de fraude pueden no capturar toda la complejidad y variabilidad del mundo real (estacionalidad, adaptación de los estafadores, contexto socioeconómico).
+
+    \item \textbf{Valores centinela (-1):} Varias variables (\texttt{prev\_address\_months\_count}, \texttt{current\_address\_months\_count}, \texttt{bank\_months\_count}, \texttt{session\_length\_in\_minutes}, \texttt{device\_distinct\_emails\_8w}) utilizan el valor $-1$ para indicar información no disponible. Estos valores no son nulos en sentido estricto, sino marcadores que deben tratarse explícitamente durante el preprocesamiento.
+
+    \item \textbf{Correlaciones moderadas con la variable objetivo:} Las correlaciones lineales individuales de cada variable con \texttt{fraud\_bool} son relativamente bajas (ninguna supera $|r| = 0,15$), lo que sugiere que la detección de fraude requiere capturar interacciones entre múltiples variables, no señales aisladas.
+
+    \item \textbf{Categorías infrarrepresentadas:} Algunas categorías en variables categóricas presentan muy pocas muestras, lo que puede generar inestabilidad en las estimaciones y sobreajuste.
+
+    \item \textbf{Variabilidad temporal limitada:} Los datos abarcan únicamente 8 meses (\texttt{month}: 0--7), lo que limita la capacidad de capturar patrones estacionales anuales o tendencias a largo plazo.
+
+    \item \textbf{Variables con varianza cercana a cero:} Algunas variables, como \texttt{device\_fraud\_count}, presentan una concentración extrema en un único valor (típicamente cero), lo que reduce su capacidad informativa individual. No obstante, estas variables de baja varianza pueden seguir siendo relevantes en interacciones con otras características.
+
+    \item \textbf{Naturaleza estática del dataset:} Aunque el título original del dataset incluye el término \textit{``Dynamic''}, los datos utilizados en este proyecto corresponden a una instantánea estática. No se dispone de actualizaciones incrementales ni de un flujo de datos en tiempo real que permita evaluar la adaptabilidad del modelo ante la evolución de las estrategias de los estafadores (\textit{concept drift}).
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Análisis de los datos}
+\label{sec:h2_analisis}
+
+El análisis exploratorio de los datos se ha realizado de forma exhaustiva en el cuaderno de Jupyter (\texttt{GUARDIANAI\_Hito2.ipynb}) asociado a este hito. En esta sección se resumen los hallazgos más relevantes, referenciando las visualizaciones generadas.
+
+\subsection{Distribución de la variable objetivo}
+
+El punto de partida del análisis es comprender la distribución de la variable que se pretende predecir. Como muestra la Figura~\ref{fig:target_dist}, el dataset presenta un \textbf{desbalanceo extremo}: del millón de solicitudes, solo un $\sim$0,9\% corresponden a fraude. Este ratio de desbalanceo (aproximadamente 1:100) condiciona todas las decisiones posteriores, desde la selección de métricas hasta las técnicas de muestreo.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/target_distribution.png}
+    \caption{Distribución de la variable objetivo \texttt{fraud\_bool}. Se observa un desbalanceo extremo: menos del 1\% de las solicitudes son fraudulentas.}
+    \label{fig:target_dist}
+\end{figure}
+
+Este desbalanceo es coherente con la realidad del sector bancario, donde las transacciones fraudulentas son una fracción mínima del total. Sin embargo, desde el punto de vista del modelado, implica que el clasificador debe ser especialmente sensible a la clase minoritaria sin generar un exceso de falsos positivos.
+
+\subsection{Análisis de distribuciones y correlaciones}
+
+Se ha analizado la distribución de cada variable del dataset, diferenciando entre variables continuas, discretas y categóricas. Los principales hallazgos son:
+
+\begin{itemize}
+    \item \textbf{Variables continuas} (\texttt{income}, \texttt{name\_email\_similarity}, \texttt{velocity\_*}, etc.): Presentan distribuciones asimétricas con colas largas hacia la derecha. Las variables de velocidad (\texttt{velocity\_6h}, \texttt{velocity\_24h}, \texttt{velocity\_4w}) muestran una concentración significativa en valores bajos con outliers extremos.
+    \item \textbf{Variables discretas} (\texttt{customer\_age}, \texttt{zip\_count\_4w}, etc.): Muchas presentan distribuciones concentradas en unos pocos valores, con algunas variables casi constantes (como \texttt{device\_fraud\_count}, con varianza cercana a cero).
+    \item \textbf{Variables categóricas} (\texttt{payment\_type}, \texttt{housing\_status}, etc.): Muestran distribuciones desiguales, con algunas categorías dominantes y otras con muy pocas observaciones.
+\end{itemize}
+
+En cuanto a las correlaciones entre variables numéricas, se ha calculado la matriz de correlación de Pearson y la asociación entre variables categóricas mediante el coeficiente V de Cramér. Los resultados muestran que:
+\begin{itemize}
+    \item Las correlaciones más altas se dan entre variables de velocidad (\texttt{velocity\_6h} y \texttt{velocity\_24h}: $r \approx 0{,}53$), lo que es esperable dado que miden fenómenos similares en ventanas temporales solapadas.
+    \item No existe ninguna variable individualmente muy correlacionada con \texttt{fraud\_bool} (las correlaciones más altas apenas alcanzan $|r| \approx 0{,}10$--$0{,}15$), confirmando que la detección de fraude es un problema intrínsecamente multivariante.
+\end{itemize}
+
+\subsection{Análisis por clase: fraude vs. no fraude}
+\label{subsec:analisis_clase}
+
+Para evaluar la capacidad discriminativa de las variables, se han generado histogramas de densidad y diagramas de caja (boxplots) separando las solicitudes por clase (fraude vs. no fraude) para las 10 variables más correlacionadas con la variable objetivo.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.75\textwidth]{figures/histograms_by_class.png}
+    \caption{Histogramas por clase (densidad normalizada) para las 10 variables más correlacionadas con fraude. La normalización por densidad permite comparar las distribuciones a pesar del desbalanceo.}
+    \label{fig:histograms_class}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.75\textwidth]{figures/boxplots_by_class.png}
+    \caption{Boxplots comparativos entre solicitudes legítimas y fraudulentas para las variables más relevantes.}
+    \label{fig:boxplots_class}
+\end{figure}
+
+Los histogramas de la Figura~\ref{fig:histograms_class} y los boxplots de la Figura~\ref{fig:boxplots_class} revelan patrones relevantes:
+
+\begin{itemize}
+    \item Las variables de velocidad (\texttt{velocity\_6h}, \texttt{velocity\_24h}, \texttt{velocity\_4w}) muestran distribuciones claramente diferentes entre clases, con valores más altos y más dispersos en las solicitudes fraudulentas. Esto tiene sentido desde el punto de vista del dominio: los estafadores tienden a realizar múltiples intentos en ventanas cortas de tiempo.
+    \item La variable \texttt{name\_email\_similarity} presenta diferencias sutiles pero consistentes: los fraudes tienden a mostrar valores de similitud ligeramente más bajos, sugiriendo el uso de correos electrónicos no relacionados con el nombre real.
+    \item Las variables de antigüedad (\texttt{bank\_months\_count}, \texttt{prev\_address\_months\_count}) muestran que las solicitudes fraudulentas proceden con mayor frecuencia de clientes sin historial previo con el banco.
+\end{itemize}
+
+\subsection{Detección de valores atípicos}
+\label{subsec:outliers}
+
+Se ha aplicado el método del rango intercuartílico (IQR) para cuantificar la presencia de valores atípicos en cada variable numérica. La Figura~\ref{fig:outliers} muestra el porcentaje de outliers por variable.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/outliers_iqr.png}
+    \caption{Porcentaje de outliers por variable según el método IQR. Las variables de velocidad y actividad reciente presentan los mayores porcentajes de valores atípicos.}
+    \label{fig:outliers}
+\end{figure}
+
+Es importante destacar que, en el contexto de la detección de fraude, los valores atípicos no deben eliminarse automáticamente. Precisamente los comportamientos anómalos ---solicitudes con velocidades inusuales, múltiples emails desde el mismo dispositivo o sesiones de duración extrema--- son \textbf{indicadores potenciales de fraude}. El tratamiento de outliers debe ser, por tanto, selectivo y orientado al problema.
+
+\subsection{Análisis de sesgos}
+\label{subsec:sesgos}
+
+Un aspecto fundamental del análisis de datos en sistemas de IA es la identificación de sesgos que puedan afectar al modelo. Se ha analizado si la tasa de fraude varía significativamente según las variables categóricas y binarias del dataset.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/fraud_rate_by_category.png}
+    \caption{Tasa de fraude desglosada por cada variable categórica. Se observan diferencias relevantes según el tipo de pago, la situación laboral y el tipo de vivienda.}
+    \label{fig:bias_category}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/fraud_rate_by_binary.png}
+    \caption{Tasa de fraude desglosada por variables binarias. Variables como \texttt{foreign\_request} y \texttt{keep\_alive\_session} muestran diferencias pronunciadas.}
+    \label{fig:bias_binary}
+\end{figure}
+
+Las Figuras~\ref{fig:bias_category} y~\ref{fig:bias_binary} revelan varios patrones de interés:
+
+\begin{itemize}
+    \item \textbf{Tipo de pago:} Ciertos métodos de pago presentan tasas de fraude significativamente superiores a la media, lo que sugiere que los estafadores tienen preferencia por determinados canales.
+    \item \textbf{Situación laboral:} Existen diferencias en la tasa de fraude según el tipo de empleo, aunque deben interpretarse con cautela para evitar discriminación algorítmica.
+    \item \textbf{Solicitudes extranjeras:} La variable \texttt{foreign\_request} muestra una tasa de fraude superior para solicitudes desde IPs extranjeras, un patrón esperado en el dominio.
+    \item \textbf{Sesiones mantenidas activas:} Las solicitudes con \texttt{keep\_alive\_session} activado presentan diferencias en la tasa de fraude, lo que puede estar relacionado con el uso de bots o herramientas automatizadas.
+\end{itemize}
+
+Estos sesgos en los datos no son necesariamente errores, sino reflejos de patrones reales de comportamiento fraudulento. Sin embargo, el modelo debe diseñarse de forma que \textbf{no amplifique sesgos injustos} contra determinados grupos demográficos.
+
+% -----------------------------------------------------------------------------
+\section{Evaluación del rendimiento. Métricas}
+\label{sec:h2_metricas}
+
+Una vez analizados los datos, es necesario definir cómo se evaluará el rendimiento del sistema de detección de fraude. La elección de las métricas adecuadas es especialmente crítica en problemas con desbalanceo extremo de clases.
+
+\subsection{¿Por qué no utilizar la exactitud (Accuracy)?}
+
+En un dataset donde el 99,1\% de las solicitudes son legítimas, un modelo que siempre prediga ``no fraude'' obtendría una exactitud del 99,1\%. Sin embargo, este modelo sería completamente inútil desde el punto de vista del negocio, ya que no detectaría ningún fraude. Por tanto, la \textbf{exactitud no es una métrica adecuada} para este problema.
+
+\subsection{Métricas seleccionadas}
+
+Se han seleccionado las siguientes métricas, alineadas tanto con los estándares de la comunidad científica como con los objetivos de negocio de NovaBank:
+
+\begin{itemize}
+    \item \textbf{Precision (Precisión):} Proporción de alertas de fraude que efectivamente son fraude. Una precisión baja significa que el banco está investigando demasiadas falsas alarmas, generando costes operativos y fricción con los clientes.
+    \item \textbf{Recall (Sensibilidad):} Proporción de fraudes reales que el modelo detecta. Un recall bajo implica que se están dejando pasar fraudes, con el consiguiente impacto económico.
+    \item \textbf{$F_1$-Score:} Media armónica de Precision y Recall. Útil como métrica resumen que penaliza el desequilibrio entre ambas.
+    \item \textbf{PR-AUC (Área bajo la curva Precision-Recall):} Métrica especialmente recomendada para problemas con desbalanceo extremo \cite{jesus2022bank}, ya que evalúa el rendimiento del modelo en el espacio Precision--Recall, que es más informativo que el espacio ROC en estos contextos.
+    \item \textbf{ROC-AUC (Área bajo la curva ROC):} Métrica complementaria que mide la capacidad del modelo para discriminar entre clases a diferentes umbrales de decisión.
+\end{itemize}
+
+\subsection{Modelo baseline: resultados preliminares}
+
+Para establecer una línea base de rendimiento, se ha entrenado un modelo \textbf{Random\-Forest\-Classifier} con los siguientes hiperparámetros: \texttt{n\_estimators=50}, \texttt{max\_depth=10}, \texttt{class\_weight='balanced'}. El uso de \texttt{class\_weight='balanced'} permite al modelo asignar mayor peso a la clase minoritaria durante el entrenamiento.
+
+La Figura~\ref{fig:feat_importance} muestra las 20 variables más importantes según el criterio de importancia Gini del modelo.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/feature_importance.png}
+    \caption{Top 20 características más importantes según la importancia Gini del RandomForest. Se observa que las variables de velocidad e ingresos dominan el modelo.}
+    \label{fig:feat_importance}
+\end{figure}
+
+La Figura~\ref{fig:model_eval} presenta la matriz de confusión, la curva ROC y la curva Precision-Recall del modelo baseline.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/model_evaluation.png}
+    \caption{Evaluación del modelo baseline: matriz de confusión (izquierda), curva ROC (centro) y curva Precision-Recall (derecha).}
+    \label{fig:model_eval}
+\end{figure}
+
+Los resultados obtenidos con este modelo baseline son los siguientes:
+
+\begin{table}[htbp]
+\centering
+\caption{Métricas del modelo baseline (RandomForest).}
+\label{tab:metricas_baseline}
+\begin{tabular}{l c}
+\toprule
+\textbf{Métrica} & \textbf{Valor} \\
+\midrule
+Precision   & 0,05  \\
+Recall      & 0,71  \\
+$F_1$-Score & 0,09  \\
+PR-AUC      & 0,11  \\
+ROC-AUC     & (ver curva) \\
+Accuracy    & 85,43\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estos resultados merecen una interpretación cuidadosa:
+\begin{itemize}
+    \item El \textbf{Recall de 0,71} indica que el modelo detecta el 71\% de los fraudes reales. Esto es alentador como punto de partida, ya que demuestra que las variables del dataset contienen señal discriminativa.
+    \item La \textbf{Precision de 0,05} es muy baja, indicando que por cada fraude detectado correctamente, el modelo genera aproximadamente 19 falsas alarmas. Esto es inasumible en producción.
+    \item El \textbf{PR-AUC de 0,11}, aunque bajo, es significativamente superior a la tasa base de fraude ($\sim$0,009), lo que confirma que el modelo aporta valor frente a una predicción aleatoria.
+\end{itemize}
+
+Estos resultados son \textbf{preliminares} y se optimizarán en el Hito~3 mediante técnicas de ingeniería de características, selección de modelos más sofisticados (XGBoost, LightGBM), ajuste de hiperparámetros y optimización del umbral de decisión. El objetivo es reducir significativamente los falsos positivos manteniendo un recall alto, encontrando el equilibrio óptimo que minimice el coste total para NovaBank.
+
+% -----------------------------------------------------------------------------
+\section{Conclusiones del análisis}
+\label{sec:h2_conclusiones}
+
+El análisis exploratorio realizado en este hito permite extraer las siguientes conclusiones fundamentales:
+
+\begin{enumerate}
+    \item \textbf{El dataset contiene señal discriminativa.} Aunque ninguna variable individualmente presenta una correlación fuerte con el fraude, el modelo baseline demuestra que la combinación de variables permite identificar patrones de comportamiento fraudulento.
+
+    \item \textbf{El desbalanceo es el principal desafío técnico.} Con menos del 1\% de fraudes, las métricas y técnicas estándar no son aplicables. Es necesario utilizar métricas como PR-AUC, técnicas de sobremuestreo y modelos capaces de manejar clases desbalanceadas.
+
+    \item \textbf{Las variables de velocidad son las más informativas.} Las variables que miden la frecuencia de actividad en ventanas temporales cortas (\texttt{velocity\_6h}, \texttt{velocity\_24h}) son las que mejor discriminan entre fraude y no fraude, tanto en el análisis de correlación como en la importancia del modelo.
+
+    \item \textbf{Los sesgos identificados deben monitorizarse.} Las diferencias en tasas de fraude según tipo de pago, origen de la solicitud y estado laboral deben ser tenidas en cuenta para evitar que el modelo discrimine injustamente a ciertos grupos.
+
+    \item \textbf{El modelo baseline establece un punto de partida cuantificable.} Con un Recall del 71\% pero una Precision del 5\%, queda claro que el siguiente hito debe enfocarse en la reducción de falsos positivos, la ingeniería de características avanzada y la exploración de modelos más potentes.
+\end{enumerate}
+
+Con estas conclusiones, el análisis de datos queda completado y se dispone de la información necesaria para abordar la \textbf{fase de modelado} en el Hito~3, donde se implementarán los modelos de detección de fraude optimizados y se evaluarán con las métricas definidas en este capítulo.
+
 % --- BIBLIOGRAFÍA ---
 \begin{thebibliography}{9}
 
@@ -144,6 +473,9 @@ Dal Pozzolo, A., Boracchi, G., Caelen, O., Alippi, C., \& Bontempi, G. (2017). \
 
 \bibitem{jesus2022bank}
 Jesus, S., Pombal, J., Alves, D., Cruz, A., Saleiro, P., Bizarro, P., \& Gama, J. (2022). \textit{Turning the Tables: Biased, Imbalanced, Dynamic Tabular Datasets for ML Evaluation}. Advances in Neural Information Processing Systems (NeurIPS).
+
+\bibitem{fraudrisk2024}
+Alnasser, M. (2024). \textit{Machine Learning Based Fraud Risk Scoring for Financial Transactions Using a Comparative Study of Random Forest and Support Vector Regression Models}. ResearchGate. DOI: 10.13140/RG.2.2.21657.
 
 \end{thebibliography}
 
