@@ -12,6 +12,7 @@
 \usepackage{hyperref}
 \usepackage{eurosym}
 \usepackage{booktabs}
+\usepackage{float}
 
 % --- Configuración de Títulos ---
 \titleformat{\chapter}[display]
@@ -130,6 +131,180 @@ La implementación de GuardianAI aporta un valor multidimensional a NovaBank:
     \item \textbf{Valor Tecnológico y Estratégico:} Introduce la cultura MLOps en el banco. Al disponer de una infraestructura que monitoriza el \textit{Data Drift}, la entidad no solo reacciona al fraude actual, sino que se prepara tecnológicamente para readaptarse a ataques futuros.
 \end{enumerate}
 
+\chapter{Hito 2: Análisis de Datos y Formulación del Problema}
+
+El presente capítulo documenta el proceso de análisis exploratorio de datos y formulación técnica del problema de detección de fraude bancario para GuardianAI. La finalidad de esta fase es establecer una cadena de evidencia entre los patrones estadísticos observados en los datos y las decisiones de diseño del posterior pipeline de modelado. En línea con la literatura reciente sobre fraude financiero, se adopta una perspectiva centrada en robustez, explicabilidad y validez operativa en contextos de desbalance extremo \cite{dalpozz2017credit,kandula2024machine}.
+
+\section{Contexto analítico y base de datos}
+
+El análisis se ha realizado sobre el conjunto \texttt{Base.csv}, perteneciente al ecosistema \textit{Bank Account Fraud} (BAF), diseñado como benchmark tabular para investigación en detección de fraude \cite{jesus2022bank,kaggle-baf}. Este conjunto presenta propiedades especialmente relevantes para un estudio de nivel avanzado: heterogeneidad de escalas, coexistencia de variables continuas/discretas/categóricas y eventos positivos escasos, rasgos habituales en escenarios reales de fraude \cite{feedzai-datasheet,nilson2023}.
+
+Con el objetivo de evitar fuga conceptual de información, la variable \texttt{credit\_risk\_score} se excluye del análisis y de la fase de entrenamiento, al representar una señal muy próxima al objetivo de predicción \cite{kandula2024machine}. Posteriormente, se define una partición \textit{train/test} 80/20 con \texttt{random\_state=42}, garantizando reproducibilidad experimental.
+
+\begin{table}[H]
+\centering
+\caption{Perfil técnico del dataset y diseño experimental (elaboración propia)}
+\begin{tabular}{ll}
+\toprule
+\textbf{Atributo} & \textbf{Valor} \\
+\midrule
+Dataset base & \texttt{Base.csv} (fraude bancario sintético) \\
+Registros & 1.000.000 \\
+Variables originales & 32 \\
+Variable objetivo & \texttt{fraud\_bool} \\
+Variable excluida & \texttt{credit\_risk\_score} \\
+Partición train/test & 80/20 con \texttt{random\_state}=42 \\
+Naturaleza del problema & Clasificación binaria desbalanceada \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Caracterización univariante}
+
+\subsection{Variables continuas}
+
+La distribución de variables continuas evidencia asimetría positiva, colas largas y concentraciones de masa en regiones específicas del dominio, patrón consistente con procesos transaccionales altamente no gaussianos \cite{kandula2024machine}. Se identifican además valores especiales (por ejemplo, \texttt{-1}) que, de acuerdo con el datasheet oficial, codifican ausencia informada y no deben interpretarse como magnitudes físicas negativas \cite{feedzai-datasheet}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{relaciones_continuas.png}
+    \caption{Distribuciones de variables continuas en el conjunto de entrenamiento.}
+    \label{fig:h2_continuas}
+\end{figure}
+
+Estos resultados justifican transformaciones robustas (p.ej., \texttt{log1p}, clipping/winsorización selectiva), codificación explícita de ausencia y control de sensibilidad a \textit{outliers} durante el entrenamiento.
+
+\subsection{Variables discretas}
+
+En las variables discretas se observan desbalances significativos en atributos binarios (como \texttt{foreign\_request} o \texttt{has\_other\_cards}) y una variabilidad casi nula en \texttt{device\_fraud\_count}, con potencial riesgo de señal espuria por dominancia de la clase mayoritaria.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{relaciones_discretas.png}
+    \caption{Distribuciones de variables discretas y binarias.}
+    \label{fig:h2_discretas}
+\end{figure}
+
+Desde una perspectiva de ingeniería, este comportamiento exige estrategias de entrenamiento sensibles al desbalance, priorizando métricas como \textit{Recall}, \textit{F1} y PR-AUC sobre la exactitud global \cite{dalpozz2017credit,kandula2024machine}.
+
+\subsection{Variables categóricas}
+
+El análisis categórico muestra dominancia de ciertas clases (por ejemplo, en \texttt{source}) y coexistencia de categorías raras en distintos atributos, fenómeno que puede degradar la generalización si no se regulariza su tratamiento.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{relaciones_categoricas.png}
+    \caption{Distribuciones de variables categóricas relevantes.}
+    \label{fig:h2_categoricas}
+\end{figure}
+
+Se recomienda agrupar categorías de frecuencia residual bajo etiquetas agregadas (p.ej., \texttt{OTHER}) y seleccionar la codificación (one-hot o \textit{target encoding} regularizado) en función de la familia de modelos y del riesgo de sobreajuste \cite{kandula2024machine,feedzai-datasheet}.
+
+\begin{table}[H]
+\centering
+\caption{Síntesis de incidencias de preprocesado detectadas (elaboración propia)}
+\begin{tabular}{ll}
+\toprule
+\textbf{Hallazgo} & \textbf{Implicación técnica} \\
+\midrule
+Valores especiales en variables numéricas & Crear bandera de ausencia y tratamiento semántico \\
+Asimetría y colas largas & Transformaciones robustas y control de \textit{outliers} \\
+Desbalance en binarias/discretas & Ponderación de clases y ajuste de umbral \\
+Categorías raras & Agrupación y codificación regularizada \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Estructura de dependencias}
+
+\subsection{Correlación entre variables numéricas}
+
+La matriz de correlación numérica confirma dependencias moderadas en variables de velocidad transaccional y en su relación con el tiempo (\texttt{month}), lo que sugiere la presencia de dinámica temporal y estacionalidad operacional.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{matriz_correlacion.png}
+    \caption{Matriz de correlación lineal entre variables numéricas.}
+    \label{fig:h2_corr}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Correlaciones numéricas destacadas del análisis (elaboración propia)}
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable 1} & \textbf{Variable 2} & \textbf{Correlación} \\
+\midrule
+\texttt{velocity\_4w} & \texttt{month} & -0.589 \\
+\texttt{customer\_age} & \texttt{date\_of\_birth\_distinct\_emails\_4w} & -0.448 \\
+\texttt{velocity\_6h} & \texttt{velocity\_24h} & 0.333 \\
+\texttt{phone\_home\_valid} & \texttt{phone\_mobile\_valid} & -0.300 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Asociación entre variables categóricas}
+
+Para cuantificar dependencia nominal se aplica Cramer's V, observándose asociaciones bajas de forma sistemática. Este resultado indica baja redundancia interna y potencial complementariedad al combinar estas variables con señales numéricas \cite{kandula2024machine}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.78\textwidth]{categorical_kramer.png}
+    \caption{Matriz de Cramer's V entre variables categóricas.}
+    \label{fig:h2_cramer}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Asociaciones categóricas no diagonales más altas (elaboración propia)}
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable A} & \textbf{Variable B} & \textbf{Cramer's V} \\
+\midrule
+\texttt{employment\_status} & \texttt{housing\_status} & 0.11 \\
+\texttt{payment\_type} & \texttt{housing\_status} & 0.10 \\
+\texttt{source} & \texttt{device\_os} & 0.08 \\
+\texttt{housing\_status} & \texttt{device\_os} & 0.08 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Línea base predictiva y formulación del problema}
+
+Como verificación inicial de viabilidad se entrena un \texttt{RandomForestClassifier} con \texttt{class\_weight='balanced'} sobre variables codificadas. Los resultados reflejan un comportamiento típico en dominios de fraude: \textit{Recall} elevado para la clase minoritaria, acompañado de \textit{Precision} reducida debido a la alta tasa de falsos positivos.
+
+\begin{table}[H]
+\centering
+\caption{Rendimiento del modelo baseline (Random Forest) (elaboración propia)}
+\begin{tabular}{ll}
+\toprule
+\textbf{Métrica} & \textbf{Resultado} \\
+\midrule
+Precision & 0.0496 \\
+Recall & 0.7065 \\
+F1-Score & 0.0928 \\
+PR-AUC & 0.1140 \\
+Acierto global & 85.43\% \\
+Acierto en fraude & 70.65\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Desde la óptica de formulación del problema, estos resultados confirman que el objetivo no puede expresarse como maximización de exactitud global, sino como optimización multiobjetivo bajo costes asimétricos: minimizar fraude no detectado sin disparar indebidamente el bloqueo de clientes legítimos \cite{dalpozz2017credit,baesens2015fraud}.
+
+\section{Conclusiones y directrices para el siguiente hito}
+
+El análisis realizado permite fijar las directrices metodológicas para la fase de modelado avanzado:
+
+\begin{itemize}
+    \item tratar explícitamente los valores especiales y la ausencia informada;
+    \item aplicar codificaciones robustas para variables categóricas con clases raras;
+    \item optimizar el umbral de decisión y la calibración probabilística con foco en PR-AUC y \textit{Recall};
+    \item incorporar validación temporal y mecanismos de explicabilidad para auditoría operativa.
+\end{itemize}
+
+En síntesis, el Hito 2 establece una base empírica sólida y reproducible para evolucionar GuardianAI hacia un sistema de detección de fraude más preciso, interpretable y alineado con las exigencias de despliegue en producción \cite{jesus2022bank,kandula2024machine}.
+
 % --- BIBLIOGRAFÍA ---
 \begin{thebibliography}{9}
 
@@ -144,6 +319,15 @@ Dal Pozzolo, A., Boracchi, G., Caelen, O., Alippi, C., \& Bontempi, G. (2017). \
 
 \bibitem{jesus2022bank}
 Jesus, S., Pombal, J., Alves, D., Cruz, A., Saleiro, P., Bizarro, P., \& Gama, J. (2022). \textit{Turning the Tables: Biased, Imbalanced, Dynamic Tabular Datasets for ML Evaluation}. Advances in Neural Information Processing Systems (NeurIPS).
+
+\bibitem{kandula2024machine}
+Kandula, N. (2024). \textit{Machine Learning Based Fraud Risk Scoring for Financial Transactions}. IJIAREC [9, 28].
+
+\bibitem{feedzai-datasheet}
+Feedzai (2022--2024). \textit{Bank Account Fraud (BAF) Dataset Suite Datasheet}. Disponible en: \url{https://github.com/feedzai/bank-account-fraud}
+
+\bibitem{kaggle-baf}
+Kaggle (2022). \textit{Bank Account Fraud Dataset (NeurIPS 2022)}. Disponible en: \url{https://www.kaggle.com/datasets/sgpjesus/bank-account-fraud-dataset-neurips-2022}
 
 \end{thebibliography}
 
