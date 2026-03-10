@@ -50,24 +50,28 @@
 % --- CAPÍTULO 1 ---
 \chapter{Hito 1: Definición del problema y determinación del alcance}
 
+\textit{Nota sobre el contexto del proyecto: Dado el carácter estrictamente confidencial de los datos bancarios reales, este proyecto se articula en torno a un caso de uso simulado. ``NovaBank'' actúa como un gemelo digital (Digital Twin) representativo de una entidad financiera europea de tamaño medio. Las problemáticas de abandono de clientes y costes operativos atribuidas a NovaBank en este documento reflejan los promedios y desafíos reales del sector extraídos de la literatura científica y del conjunto de datos validado utilizado en este trabajo.}
+\vspace{0.5cm}
+
 En este capítulo se detalla la definición del problema seleccionado para el desarrollo del proyecto \textbf{GuardianAI}, así como la determinación de su alcance técnico, organizativo y económico.
 
 \section{Contexto y definición del problema}
-En el ecosistema de la banca digital contemporánea, la seguridad en las transacciones con tarjeta de crédito no es solo una necesidad técnica, sino un pilar fundamental de la confianza del usuario. El fraude financiero genera pérdidas millonarias cada año que impactan directamente en la cuenta de resultados de las entidades y erosionan la reputación del sector. 
+En el ecosistema de la banca digital contemporánea, la seguridad en las transacciones con tarjeta de crédito no es solo una necesidad técnica, sino un pilar fundamental de la confianza del usuario. El fraude financiero genera pérdidas millonarias anuales (estimadas en más de 30.000 millones de dólares a nivel global según el Nilson Report \cite{nilson2023}) que impactan directamente en la cuenta de resultados de las entidades y erosionan la reputación del sector. 
 
-Históricamente, la detección de anomalías en entidades bancarias se ha basado en sistemas de reglas estáticas (por ejemplo, bloquear transacciones superiores a cierta cantidad en el extranjero). Estos enfoques presentan limitaciones evidentes: son inflexibles, no capturan patrones de comportamiento complejos y, lo más crítico, generan un volumen inaceptable de \textit{falsos positivos}. Bloquear la tarjeta de un cliente legítimo genera un alto nivel de frustración y fricción, siendo una de las principales causas de abandono en neobancos como \textbf{NovaBank}.
+Históricamente, la detección de anomalías en entidades bancarias se ha basado en sistemas de reglas estáticas \cite{baesens2015fraud} (por ejemplo, bloquear transacciones superiores a cierta cantidad en el extranjero). Estos enfoques presentan limitaciones evidentes: son inflexibles, no capturan patrones de comportamiento complejos y, lo más crítico, generan un volumen inaceptable de \textit{falsos positivos}. Bloquear la tarjeta de un cliente legítimo genera un alto nivel de frustración y fricción, siendo una de las principales causas de abandono en entidades digitales como \textbf{NovaBank}.
 
 El problema que se aborda en este proyecto consiste en utilizar datos históricos de transacciones para generar un sistema predictivo que evalúe el riesgo en tiempo real. Para ello, se utilizará un conjunto de datos (basado en el \textit{Credit Card Fraud Detection} de Kaggle) compuesto por variables numéricas resultantes de una transformación PCA, así como el importe (\textit{Amount}) y el tiempo (\textit{Time}) de la transacción. El mayor reto analítico radica en el \textbf{extremo desbalanceo de clases}: los fraudes representan únicamente el $0,17\%$ de las operaciones. 
 
 \section{Objetivos generales y específicos}
-El problema principal puede formularse de la siguiente manera: \textit{¿Cómo diseñar un sistema de inteligencia artificial capaz de evaluar en tiempo real el riesgo de fraude en transacciones bancarias, equilibrando la detección precisa de ilícitos y la minimización de bloqueos a clientes legítimos, manteniendo un alto grado de explicabilidad en sus decisiones?}
+El problema principal puede formularse de la siguiente manera: \textit{¿Cómo diseñar un sistema de inteligencia artificial capaz de evaluar en tiempo real el riesgo de fraude en transacciones bancarias, equilibrando la detección precisa de transacciones ilícitas o fraudulentas y la minimización de bloqueos a clientes legítimos, manteniendo un alto grado de explicabilidad en sus decisiones?}
 
-Para dar respuesta a esta pregunta, el \textbf{objetivo general} del proyecto es diseñar, implementar y desplegar \textbf{GuardianAI}, un sistema que reduzca el fraude no detectado en un 15\% (fase MVP) para NovaBank, garantizando su integración en un entorno web real y su monitorización continua.
+Para dar respuesta a esta pregunta, el \textbf{objetivo general} del proyecto es diseñar, implementar y desplegar \textbf{GuardianAI}, un sistema que reduzca el fraude no detectado en un 15\% (fase MVP) para NovaBank, garantizando su integración en un entorno web real y su monitorización continua. Se establece este umbral del 15\% tomando como referencia estudios de la industria que indican que la transición de sistemas basados en reglas a modelos de \textit{Machine Learning} produce mejoras incrementales de entre el 10\% y el 20\% en las tasas de detección durante las primeras fases de despliegue \cite{dalpozz2017credit}. Considerando una tasa base de fraude no detectado sobre el volumen total de transacciones, una reducción del 15\% representa un impacto económico altamente significativo.
 
 Los \textbf{objetivos específicos} son los siguientes:
 \begin{itemize}
     \item Construir un \textit{pipeline} de datos automatizado que aplique técnicas de sobremuestreo sintético (SMOTE) para mitigar el desbalanceo extremo de las clases.
-    \item Implementar y entrenar un modelo basado en \textit{Extreme Gradient Boosting} (XGBoost), priorizando métricas robustas de la industria como el AUPRC (Área bajo la curva Precision-Recall) y el $F_1$-Score, descartando la exactitud (\textit{Accuracy}) como métrica principal.
+    \item Implementar y entrenar un modelo predictivo evaluando candidatos basados en \textit{Extreme Gradient Boosting} (XGBoost). La elección preliminar de esta familia de modelos se justifica por su rendimiento estado-del-arte documentado en la literatura científica para conjuntos de datos tabulares, altamente desbalanceados y no lineales, características propias de las transacciones financieras \cite{dalpozz2017credit}.
+    \item Priorizar métricas técnicas de \textit{Machine Learning} adecuadas para datos severamente desbalanceados, como el Área bajo la curva Precision-Recall (AUPRC) y el $F_1$-Score, descartando la exactitud (\textit{Accuracy}) como métrica principal, y alineando estas métricas posteriormente con el coste de negocio.
     \item Integrar una capa de explicabilidad mediante la librería SHAP (\textit{SHapley Additive exPlanations}), permitiendo justificar de forma interpretable el motivo del bloqueo de una operación.
     \item Empaquetar el modelo como un microservicio mediante FastAPI y Docker.
     \item Diseñar un sistema de monitorización capaz de detectar \textit{Data Drift}, simulando ataques de fraude emergentes como el \textit{Carding} (micro-fraudes iterativos).
@@ -80,11 +84,7 @@ Los \textbf{objetivos específicos} son los siguientes:
 El proyecto se desarrollará a lo largo de 12 semanas, estructurado en 5 grandes hitos iterativos: definición del problema, ingeniería de datos, modelado, despliegue en API y monitorización de drift en producción.
 
 \subsection{Recursos Humanos: asignación de tareas y capacidad}
-El desarrollo de GuardianAI refleja un escenario realista de producto de IA, donde interactúan perfiles de modelado, ingeniería de datos, operaciones y negocio, así como un grupo de expertos en el dominio bancario conformado por desarrolladores del sistema bancario, así como de algunos técnicos encargados de la detección de fraudes y además se ha contado con la colaboración de la Brigada Central de Investigación Teconológica (BCIT) de la Policía Nacional.
-
-El equipo bancario ha colaborado como fuente fundamental de conocimiento acerca del sistema bancario, y junto con la BCIT, ha definido lo que es un fraude bancario, además de actuar como stakeholder y cliente del sistema.
-
-La brigada BCIT ha colaborado aportando definiciones expertas de fraude bancario, así como siendo fuente de conocimiento acerca de los métodos usados para cometer estos fraudes.
+El desarrollo de GuardianAI refleja un escenario realista de producto de IA, donde interactúan perfiles de modelado, ingeniería de datos, operaciones y negocio. En nuestro entorno simulado, el equipo asume los roles técnicos y funcionales necesarios para interactuar con los requisitos de NovaBank, actuando de forma dual como \textit{stakeholders} y desarrolladores del sistema.
 
 El equipo técnico está formado por cuatro ingenieros junior con roles específicos:
 
@@ -92,20 +92,25 @@ El equipo técnico está formado por cuatro ingenieros junior con roles específ
 Responsable del diseño del \textit{pipeline} de ingesta y preprocesamiento. Su labor incluye la limpieza de los datos tabulares, el escalado de variables no estandarizadas (Monto y Tiempo) y la aplicación de técnicas de \textit{resampling} (SMOTE) para generar un espacio de entrenamiento equilibrado sin introducir ruido artificial.
 
 \textbf{Alejandro Córcoles Roldán. Rol principal: Machine Learning Engineer.}
-Encargado del núcleo algorítmico del sistema. Sus tareas abarcan la selección del modelo (XGBoost), la optimización de hiperparámetros y la validación cruzada. Su principal desafío es garantizar que el modelo no caiga en la "trampa del Accuracy" y logre maximizar la identificación de fraudes (Recall) sin penalizar severamente las transacciones legítimas (Precision).
+Encargado del núcleo algorítmico del sistema. Sus tareas abarcan la selección del modelo (XGBoost), la optimización de hiperparámetros y la validación cruzada. Su principal desafío es garantizar que el modelo no caiga en la ``trampa del Accuracy'' y logre maximizar la identificación de fraudes (Recall) sin penalizar severamente las transacciones legítimas (Precision).
 
 \textbf{Gonzalo Torres Aparicio. Rol principal: Analista de Negocio y Explicabilidad (Domain Expert).}
-Ejerce de puente entre el modelo matemático y los requisitos de NovaBank. Es el responsable de implementar SHAP para desgranar la caja negra del modelo de XGBoost. Su labor asegura que si un cliente reclama un bloqueo, el banco pueda darle una respuesta basada en datos (ej. \textit{"Comportamiento atípico combinado con un monto inusual para la franja horaria"}).
+Ejerce de puente entre el modelo matemático y los requisitos simulados de NovaBank. Es el responsable de implementar SHAP para desgranar la caja negra del modelo de XGBoost. Su labor asegura que si un cliente reclama un bloqueo, el banco pueda darle una respuesta basada en datos (ej. \textit{``Comportamiento atípico combinado con un monto inusual para la franja horaria''}).
 
 \textbf{Antonio César García Fuentes. Rol principal: DevOps y MLOps Engineer.}
 Responsable de sacar el modelo del entorno de desarrollo (\textit{notebooks}) y llevarlo a producción. Sus tareas incluyen el empaquetado del sistema en contenedores Docker, el desarrollo de la API con FastAPI y la configuración de \textit{dashboards} para monitorizar la caída de rendimiento ante cambios de comportamiento de los estafadores (\textit{Data Drift}).
 
 \subsection{Viabilidad. Estudio del ROI}
-Para evaluar la viabilidad de GuardianAI, se realiza una estimación del Retorno de Inversión (ROI) considerando un escenario de 12 semanas de desarrollo:
+Para evaluar la viabilidad de GuardianAI, se realiza una estimación del Retorno de Inversión (ROI) considerando un escenario de 12 semanas de desarrollo. Los costes se han presupuestado basándose en los estándares actuales del mercado tecnológico:
 \begin{itemize}
     \item \textbf{Horas totales:} 4 personas $\times$ 10 horas/semana $\times$ 12 semanas = 480 horas.
-    \item \textbf{Coste humano:} 480 horas $\times$ 35 \euro/hora = 16.800 \euro.
-    \item \textbf{Coste infraestructura:} 1.500 \euro\ (Despliegue cloud y servicios de ingesta).
+    \item \textbf{Coste humano:} 480 horas $\times$ 35 \euro/hora = 16.800 \euro. (Tarifa estimada para perfiles Junior/Mid en Ciencia de Datos en España).
+    \item \textbf{Coste de infraestructura (Cloud):} 1.500 \euro. La externalización de la infraestructura es estrictamente necesaria debido a que la fase de modelado requerirá el entrenamiento iterativo de algoritmos avanzados de \textit{Machine Learning}, sumado a la probable generación de datos sintéticos para mitigar el extremo desbalanceo de clases y una exhaustiva búsqueda de hiperparámetros. Estas operaciones de experimentación exigen picos de memoria RAM y capacidad de procesamiento (CPU/GPU) que exceden las prestaciones de los equipos locales de desarrollo. El presupuesto se calcula en base a un consumo estimado de 500 \euro\ mensuales durante los 3 meses de desarrollo (fases de experimentación y MVP), desglosado de la siguiente manera:
+    \begin{itemize}
+        \item \textit{Cómputo para experimentación:} $\sim$300 \euro/mes (Instancias Cloud orientadas a cómputo intensivo para la validación y el entrenamiento cruzado de diferentes familias de modelos predictivos).
+        \item \textit{Almacenamiento y registro:} $\sim$50 \euro/mes (Servicios tipo S3 para alojar los \textit{datasets} crudos y procesados, así como el registro de los experimentos).
+        \item \textit{Despliegue del MVP:} $\sim$150 \euro/mes (Alojamiento de contenedores y ejecución de la API para la simulación de inferencia de fraude en tiempo real).
+    \end{itemize}
     \item \textbf{Coste Total = 18.300 \euro.}
 \end{itemize}
 
@@ -115,7 +120,7 @@ Se estima que, al lograr el MVP (reducción del 15\% en fraudes exitosos) y ahor
 ROI = \frac{26000 - 18300}{18300} = 0.42
 \end{equation}
 
-Un ROI del 42\% en la fase inicial demuestra que el proyecto es financieramente viable y fácilmente amortizable a corto plazo.
+Un ROI del 42\% en la fase inicial demuestra que el proyecto es financieramente viable. Adicionalmente, para garantizar que el proyecto no incurra en pérdidas (Punto de Equilibrio o \textit{Break-Even}), el ahorro generado debe igualar la inversión de 18.300 \euro. Asumiendo una relación lineal entre el porcentaje de detección y el ahorro, la reducción mínima requerida de fraude no detectado para hacer viable el proyecto es del 10,55\% ($18.300 / (26.000 / 0.15)$). Alcanzar el objetivo propuesto del 15\% sitúa al proyecto con un amplio margen de seguridad por encima de este límite inferior.
 
 \subsection{Valor}
 La implementación de GuardianAI aporta un valor multidimensional a NovaBank:
@@ -124,5 +129,22 @@ La implementación de GuardianAI aporta un valor multidimensional a NovaBank:
     \item \textbf{Valor Social y de Usuario:} Reduce la fricción con los clientes honestos al minimizar los falsos positivos. Un cliente no frustrado es un cliente fidelizado.
     \item \textbf{Valor Tecnológico y Estratégico:} Introduce la cultura MLOps en el banco. Al disponer de una infraestructura que monitoriza el \textit{Data Drift}, la entidad no solo reacciona al fraude actual, sino que se prepara tecnológicamente para readaptarse a ataques futuros.
 \end{enumerate}
+
+% --- BIBLIOGRAFÍA ---
+\begin{thebibliography}{9}
+
+\bibitem{nilson2023}
+The Nilson Report (2023). \textit{Global Card Fraud Losses}. Recuperado de la publicación anual sobre métricas de la industria de pagos.
+
+\bibitem{baesens2015fraud}
+Baesens, B., Van Vlasselaer, V., \& Verbeke, W. (2015). \textit{Fraud Analytics Using Descriptive, Predictive, and Social Network Techniques: A Guide to Data Science for Fraud Detection}. John Wiley \& Sons.
+
+\bibitem{dalpozz2017credit}
+Dal Pozzolo, A., Boracchi, G., Caelen, O., Alippi, C., \& Bontempi, G. (2017). \textit{Credit Card Fraud Detection: A Realistic Modeling and a Novel Learning Strategy}. IEEE Transactions on Neural Networks and Learning Systems, 29(8), 3784-3797.
+
+\bibitem{jesus2022bank}
+Jesus, S., Pombal, J., Alves, D., Cruz, A., Saleiro, P., Bizarro, P., \& Gama, J. (2022). \textit{Turning the Tables: Biased, Imbalanced, Dynamic Tabular Datasets for ML Evaluation}. Advances in Neural Information Processing Systems (NeurIPS).
+
+\end{thebibliography}
 
 \end{document}
