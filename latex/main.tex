@@ -461,6 +461,182 @@ El análisis exploratorio realizado en este hito permite extraer las siguientes 
 
 Con estas conclusiones, el análisis de datos queda completado y se dispone de la información necesaria para abordar la \textbf{fase de modelado} en el Hito~3, donde se implementarán los modelos de detección de fraude optimizados y se evaluarán con las métricas definidas en este capítulo.
 
+\chapter{Hito 3: Modelado}
+\label{ch:hito3}
+
+\section{Introducción}
+\label{sec:h3_intro}
+
+En este tercer hito se realizará el modelado de los \textbf{datos} tal como se describió en el capítulo anterior, con el objetivo de diseñar, implementar y desplegar un sistema inteligente de detección de fraude en aperturas de cuentas bancarias para NovaBank. El sistema desarrollado debe ser capaz de asignar una \textbf{puntuación de riesgo} (\textit{fraud risk scoring}) a cada solicitud \cite{fraudrisk2024}, permitiendo a los analistas priorizar la revisión de las operaciones más sospechosas.
+
+Como referencia de implementación y para facilitar la reproducibilidad, el código desarrollado en GuardianAI está disponible en el repositorio oficial del proyecto en GitHub\footnote{\url{https://github.com/davidmir39/GuardianAI}}.
+
+El presente capítulo se organiza de la siguiente manera: en primer lugar, se listarán una serie de modelos muy usados para la detección de fraude bancario (\S\ref{sec:h3_modelos}), detallando sus fortalezas y debilidades. Posteriormente se realizarán pruebas con dichos modelos para observar cuál da mejores resultados (\S\ref{sec:h3_comparativa}). Con los resultados de las pruebas, se analizarán los resultados de esta, comparándolos con Random Forest, para seleccionar un modelo adecuado (\S\ref{sec:h3_seleccion}). Para finalizar, sobre el modelo seleccionado, se realizará un ajuste fino para escoger los hiperparámetros que mejoren los resultados. (\S\ref{sec:h3_hiperparametros}) y se resumen los resultados obtenidos. (\S\ref{sec:h3_resultados}).
+
+\section{Selección de modelos}
+\label{sec:h3_modelos}
+
+Basándose en trabajos previos, se han seleccionado varios modelos de Machine Learning para realizar esta comparativa, pasamos a enumerarlos y detallar para este caso, sus fortalezas y debilidades:
+
+\begin{enumerate}
+    \item \textbf{eXtreme Gradient Boosting (XGBoost)}
+    \begin{itemize}
+        \item \textbf{Puntos fuertes:} Es considerado el estándar para datos tabulares estructurados debido a su capacidad para manejar interacciones no lineales complejas y alcanzar precisiones de hasta el 99.96\% [1, 2]. Es altamente eficiente en el manejo de características faltantes y datos ruidosos [2, 3].
+        \item \textbf{Puntos débiles:} Su naturaleza de "caja negra" presenta desafíos significativos para la interpretabilidad regulatoria [4]. Requiere un ajuste minucioso de hiperparámetros para evitar el sobreajuste en conjuntos de datos muy específicos [5].
+    \end{itemize}
+
+    \item \textbf{Random Forest (Bosque Aleatorio)}
+    \begin{itemize}
+        \item \textbf{Puntos fuertes:} Destaca por su robustez ante el sobreajuste mediante el uso de múltiples árboles de decisión y su capacidad nativa para manejar conjuntos de datos altamente desbalanceados [1, 6]. Es eficaz en la clasificación de transacciones legítimas vs. fraudulentas sin un preprocesamiento exhaustivo [7, 8].
+        \item \textbf{Puntos débiles:} Puede ser computacionalmente costoso y presentar una latencia de respuesta más alta que modelos lineales en entornos de procesamiento masivo en tiempo real [9, 10].
+    \end{itemize}
+
+    \item \textbf{Regresión Logística (Logistic Regression)}
+    \begin{itemize}
+        \item \textbf{Puntos fuertes:} Ofrece una interpretabilidad máxima, siendo ideal como modelo base para cumplir con normativas de transparencia financiera [8, 11]. Su implementación es sencilla, rápida y requiere pocos recursos computacionales para decisiones inmediatas [8, 12].
+        \item \textbf{Puntos débiles:} Tiene una capacidad muy limitada para capturar patrones de fraude sofisticados o relaciones complejas entre variables, lo que suele resultar en una menor tasa de detección (recall) en comparación con modelos avanzados [10, 13].
+    \end{itemize}
+
+    \item \textbf{Redes Neuronales de Grafos (Graph Neural Networks - GNN)}
+    \begin{itemize}
+        \item \textbf{Puntos fuertes:} Son excepcionales para detectar redes de fraude organizado y anillos de delincuencia al modelar las relaciones entre cuentas, dispositivos y comercios como una red interconectada [14, 15]. Permiten descubrir patrones colaborativos que son invisibles para los modelos basados únicamente en transacciones aisladas [15, 16].
+        \item \textbf{Puntos débiles:} Presentan una alta complejidad de implementación y requieren una infraestructura de datos especializada (bases de datos de grafos) para ser escalables a millones de nodos [17, 18].
+    \end{itemize}
+
+    \item \textbf{Redes Neuronales Recurrentes (RNN), específicamente LSTM}
+    \begin{itemize}
+        \item \textbf{Puntos fuertes:} Ideales para analizar el comportamiento secuencial y temporal de las transacciones, permitiendo detectar cambios sutiles en los hábitos de gasto de un usuario a lo largo del tiempo [19, 20]. Capturan dependencias de largo alcance en series temporales financieras [21, 22].
+        \item \textbf{Puntos débiles:} El entrenamiento es lento y propenso al problema del desvanecimiento del gradiente si no se utiliza una arquitectura LSTM robusta [20, 23]. Además, pueden ser ineficientes si el historial de transacciones es corto o fragmentado [24, 25].
+    \end{itemize}
+
+
+
+\end{enumerate}
+
+Ahora pasaremos a realizar una comparativa con unas implementaciones básicas de estos modelos.
+
+\section{Comparativa de modelos}
+\label{sec:h3_comparativa}
+
+Las métricas seleccionadas para la comparativa, serán las ya seleccionadas previamente \ref{sec:h2_metricas} para poder realizar una comparación justa con el modelo obtenido en la fase previa. 
+
+Con esas métricas establecidas, se ejecutan los modelos, y se obtienen los resultados siguientes:
+
+\begin{table}[htbp]
+    \centering
+    \caption{Comparación de Modelos de Clasificación}
+    \label{tab:comparacion_modelos}
+    \resizebox{1\textwidth}{!}{
+        \begin{tabular}{lccccccc}
+            \toprule
+            \textbf{Modelo} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1-Score} & \textbf{PR-AUC} & \textbf{ROC-AUC} & \textbf{Umbral} & \textbf{Tiempo (s)} \\
+            \midrule
+            XGBoost         & 0.2001 & 0.2793 & 0.2331 & 0.1564 & 0.8938 & 0.8900 & 7.4000 \\
+            Random Forest   & 0.1739 & 0.2295 & 0.1978 & 0.1110 & 0.8720 & 0.7700 & 33.4000 \\
+            LSTM            & 0.1053 & 0.2390 & 0.1462 & 0.0735 & 0.8277 & 0.8600 & 350.5000 \\
+            Reg. Logística  & 0.0861 & 0.1460 & 0.1083 & 0.0486 & 0.7628 & 0.8700 & 37.2000 \\
+            GNN             & 0.0705 & 0.1252 & 0.0902 & 0.0395 & 0.7203 & 0.7700 & 242.7000 \\
+            \bottomrule
+        \end{tabular}
+    }
+\end{table}
+
+Tal como se observa, los mejores números en todos los parámetros son para \textbf{datos}, demostrando no solo tener más aciertos, también menos errores, e incluso siendo más rápida en general que las alternativas. 
+
+\subsection{Análisis de Métricas Globales}
+La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:metricas}) revela que los modelos basados en \textit{gradient boosting} (XGBoost) superan sistemáticamente a las arquitecturas de \textit{deep learning} en este conjunto de datos específico. XGBoost lidera en todas las categorías, destacando un F1-Score de 0.233 y un ROC-AUC de 0.894.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../comparacion_metricas.png}
+    \caption{Comparativa de métricas estadísticas por modelo. Se observa la dominancia técnica de XGBoost en precisión y exhaustividad.}
+    \label{fig:metricas}
+\end{figure}
+
+Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0.720), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost duplica la eficacia de la Regresión Logística (0.156 vs 0.049), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
+
+\subsection{Curvas de Rendimiento y Capacidad Discriminatoria}
+La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0.011), lo cual valida la utilidad de la selección algorítmica.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../curvas_roc_pr.png}
+    \caption{Curvas ROC (izquierda) y Precisión-Recall (derecha). El modelo LSTM muestra una capacidad de generalización intermedia (AUC 0.828).}
+    \label{fig:curvas}
+\end{figure}
+
+El rendimiento inferior de las GNN (AUC 0.720) sugiere que, para este \textit{dataset} tabular, las señales relacionales podrían estar diluidas o requerir una ingeniería de grafos más profunda para competir con los modelos de ensamble tradicionales \cite{oladele2023, tian2024}.
+
+\subsection{Evaluación de Errores: Matrices de Confusión}
+El análisis de las matrices normalizadas (Figura \ref{fig:matrices}) es crítico para entender el coste operativo del fraude. En banca, un falso negativo (fraude no detectado) conlleva pérdidas directas, mientras que un falso positivo genera fricción con el cliente y costes de investigación \cite{kpmg2025, martini2025}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../matrices_confusion.png}
+    \caption{Matrices de confusión normalizadas. XGBoost captura el 27.93\% de los fraudes con solo un 1.19\% de falsas alarmas.}
+    \label{fig:matrices}
+\end{figure}
+
+Se observa que la GNN presenta el menor recall (12.52\%), fallando en identificar la mayoría de las transacciones fraudulentas bajo los parámetros actuales. Por el contrario, LSTM muestra un recall competitivo (23.90\%), pero a costa de una mayor tasa de falsos positivos (2.16\%), lo que indica una menor precisión en la identificación de la clase positiva \cite{martini2025}.
+
+\subsection{Perfil Operativo y Eficiencia del Sistema}
+El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimensional de cada algoritmo. XGBoost y Random Forest presentan las áreas de cobertura más equilibradas.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../radar_modelos.png}
+    \caption{Gráfico de radar que ilustra el balance entre métricas de precisión, exhaustividad y AUC.}
+    \label{fig:radar}
+\end{figure}
+
+Finalmente, la eficiencia computacional debe ponderarse frente a la calidad predictiva (Figura \ref{fig:tiempo}). XGBoost se posiciona como el modelo más eficiente en términos de Pareto: logra el F1-Score más alto con un tiempo de entrenamiento mínimo ($<$ 50s).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../tiempo_vs_f1.png}
+    \caption{Trade-off entre calidad (F1-Score) y tiempo de entrenamiento. Las arquitecturas LSTM y GNN presentan una ineficiencia relativa en este entorno tabular.}
+    \label{fig:tiempo}
+\end{figure}
+
+Arquitecturas complejas como LSTM requieren más de 350 segundos para ser entrenadas, lo cual es casi 10 veces el tiempo de XGBoost, sin ofrecer una mejora en la detección. Esto justifica la preferencia industrial por modelos de \textit{gradient boosting} para datos tabulares masivos \cite{chen2016, das2023}.
+
+
+
+\section{Selección del modelo}
+\label{sec:h3_seleccion}
+
+La adopción de \textit{eXtreme Gradient Boosting} (XGBoost) como la arquitectura predilecta para la detección de fraude bancario no es meramente circunstancial, sino que responde a una convergencia de superioridad estadística, eficiencia computacional y robustez ante las patologías intrínsecas de los datos financieros \cite{chen2016, das2023, hafez2025}. A continuación, se fundamenta esta elección desde una perspectiva de investigación doctoral, integrando los hallazgos empíricos derivados del análisis de los resultados cuantitativos.
+
+\subsection{1. Superioridad en el Manejo de la Asimetría de Clases}
+El fraude bancario se caracteriza por un desbalance extremo, donde la clase positiva suele representar menos del 0.1\% de las observaciones \cite{das2023, yang2026, 912}. Mientras que modelos lineales como la Regresión Logística fallan al capturar fronteras de decisión complejas en estos entornos, XGBoost utiliza un enfoque de aprendizaje secuencial de "modelos débiles" que minimiza de forma iterativa los errores residuales, permitiendo una identificación más precisa de la clase minoritaria \cite{454, 885}. Los datos presentados en la Figura \href{comparacion_metricas.png}{comparacion\_metricas.png} validan esta capacidad: XGBoost ostenta el \textit{Recall} más alto (0.279), lo que garantiza una mayor captura de eventos fraudulentos en comparación con Random Forest (0.229) o arquitecturas de grafos (0.125) \cite{958}.
+
+\subsection{2. Eficiencia en el Frente de Pareto: Calidad vs. Tiempo}
+Desde una vertiente operativa, la detección de fraude requiere un compromiso crítico entre la latencia de respuesta y la precisión del sistema \cite{martini2025, 307}. Según el análisis de la Figura \href{tiempo_vs_f1.png}{tiempo\_vs\_f1.png}, XGBoost se posiciona de forma única en el Frente de Pareto, logrando el F1-Score más elevado (0.233) con un tiempo de entrenamiento significativamente inferior ($<$50 s) al de modelos de \textit{Deep Learning} como LSTM ($>$350 s) \cite{1001}. Esta parsimonia computacional lo convierte en la solución más viable para entornos de producción que manejan flujos masivos de transacciones en tiempo real \cite{457, 1001}.
+
+\subsection{3. Discriminación Robusta y Curvas de Rendimiento}
+La capacidad discriminatoria del modelo es superior en todas las métricas de área bajo la curva. En la Figura \href{curvas_roc_pr.png}{curvas\_roc\_pr.png}, se observa que XGBoost lidera con un ROC-AUC de 0.894 y, más crucialmente, un PR-AUC de 0.156 \cite{958, 959}. Este último dato es particularmente relevante en el ámbito académico, ya que el PR-AUC es una métrica mucho más informativa que el ROC-AUC en \textit{datasets} desbalanceados, al ignorar los verdaderos negativos masivos que pueden inflar artificialmente el rendimiento \cite{saito2015, chen2025, 938}.
+
+\subsection{4. Estado del Arte en Datos Tabulares ESTRUCTURADOS}
+A pesar de la reciente popularidad de las Redes Neuronales de Grafos (GNN) y los Transformers, la literatura científica sostiene que los modelos basados en árboles de decisión potenciados por gradiente siguen definiendo el estado del arte para datos tabulares y estructurados \cite{16, 885, 922}. La capacidad intrínseca de XGBoost para manejar interacciones no lineales de alta dimensionalidad sin requerir el preprocesamiento exhaustivo o la construcción de grafos complejos lo posiciona como el modelo de referencia en la industria financiera \cite{885, 924}.
+
+En conclusión, XGBoost ofrece una combinación inigualable de \textbf{potencia predictiva}, \textbf{eficiencia operativa} y \textbf{robustez ante el ruido}, consolidándose como el componente central más eficaz para un sistema de defensa multicapa contra el fraude financiero \cite{46, 885}.
+
+
+% Las matrices de confusión normalizadas ratifican la naturaleza asimétrica del problema y la dificultad intrínseca de los modelos para caracterizar la clase minoritaria ("Fraude"). A pesar de la alta especificidad general (True Negative Rate > 97\%), la sensibilidad o
+% recall es alarmantemente baja en todas las arquitecturas, con XGBoost liderando la detección con apenas un 27.93\%. Esta elevada tasa de falsos negativos (error de tipo II) sugiere que las características actuales del dataset no proporcionan una señal lo suficientemente distintiva para superar el sesgo hacia la clase mayoritaria, resultando en modelos que, aunque conservadores al evitar falsos positivos, fallan sistemáticamente en interceptar la mayoría de las transacciones fraudulentas.
+% Desde una perspectiva comparativa, destaca el desempeño degradado de los modelos de Deep Learning, especialmente la GNN (12.5\% de recall), cuyo rendimiento es incluso inferior al de la Regresión Logística (14.60\%). Este fenómeno indica que la complejidad algorítmica y los sesgos inductivos relacionales no están logrando mitigar el desequilibrio de clases de forma efectiva, sugiriendo una posible "anestesia" del modelo ante la predominancia de la clase negativa. La consistencia en los bajos errores de tipo I (~1-2\%) a costa de una ceguera operativa frente a la clase positiva subraya la necesidad de abandonar los umbrales de decisión estándar y explorar técnicas de aprendizaje sensible al coste o ajustes en la frontera de decisión para priorizar la captura de anomalías sobre la exactitud global.
+
+
+
+\label{sec:h3_hiperparametros}
+
+
+
+\label{sec:h3_resultados}
+
+
+
+
 % --- BIBLIOGRAFÍA ---
 \begin{thebibliography}{9}
 
@@ -478,6 +654,30 @@ Jesus, S., Pombal, J., Alves, D., Cruz, A., Saleiro, P., Bizarro, P., \& Gama, J
 
 \bibitem{fraudrisk2024}
 Alnasser, M. (2024). \textit{Machine Learning Based Fraud Risk Scoring for Financial Transactions Using a Comparative Study of Random Forest and Support Vector Regression Models}. ResearchGate. DOI: 10.13140/RG.2.2.21657.
+
+\bibitem{chen2016} 
+Chen, T., \& Guestrin, C. (2016). \textit{XGBoost: A Scalable Tree Boosting System}. Proceedings of the 22nd ACM SIGKDD, 785–794.
+
+\bibitem{das2023} 
+Das, S. R., Bin Sulaiman, R., \& Butt, U. (2023). \textit{Comparative Analysis of Machine Learning Algorithms for Credit Card Fraud Detection}. FMDB Transactions on Sustainable Computing Systems, 1(4), 225–244.
+
+\bibitem{phua2010} 
+Phua, C., Lee, V., Smith, K., \& Gayler, R. (2010). \textit{A comprehensive survey of data mining-based fraud detection research}. Artificial Intelligence Review, 34(1), 1–14.
+
+\bibitem{oladele2023} 
+Oladele, S., John, C., \& Marion, L. (2023). \textit{A Comparative Study of Graph Neural Networks (GNNs) vs. traditional supervised learning methods for Identifying Syndicated Credit Fraud and Anomalous Loan Applications}. ResearchGate.
+
+\bibitem{forough2021} 
+Forough, J., \& Momtazi, S. (2021). \textit{Ensemble of deep sequential models for credit card fraud detection}. Applied Soft Computing, 99, 106883.
+
+\bibitem{hafez2025} 
+Hafez, I. Y., Alam, M., \& Idris, M. (2025). \textit{A systematic review of AI-enhanced techniques in credit card fraud detection}. Journal of Big Data, 12(1), 1-23.
+
+\bibitem{eteng2024} Stephen Eteng, et al. (2024). \textit{Generative Adversarial Networks (GANs) for Synthetic Fraudulent Transaction Data Augmentation}. ResearchGate.
+\bibitem{yang2026} Haiquan Yang, et al. (2026). \textit{A Review of Artificial Intelligence for Financial Fraud Detection}. Applied Sciences, MDPI.
+\bibitem{devi2025} R. Renuga Devi, et al. (2025). \textit{Reinforcement learning with graph neural network (RL-GNN) fusion for real-time financial fraud detection: a context-aware community mining approach}. Scientific Reports (PMC).
+\bibitem{chen2025} Yisong Chen, et al. (2025). \textit{Year-over-Year Developments in Financial Fraud Detection via Deep Learning: A Systematic Literature Review}. arXiv.
+\bibitem{kpmg2025} KPMG International. (2025). \textit{Bridging innovation and compliance - Machine learning models in Financial Crime Compliance (FCC)}.
 
 \end{thebibliography}
 
