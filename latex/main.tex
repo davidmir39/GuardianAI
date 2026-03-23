@@ -614,7 +614,7 @@ El fraude bancario se caracteriza por un desbalance extremo, donde la clase posi
 Desde una vertiente operativa, la detección de fraude requiere un compromiso crítico entre la latencia de respuesta y la precisión del sistema \cite{martini2025}. Según el análisis de la Figura \href{../tiempo_vs_f1.png}{tiempo\_vs\_f1.png}, XGBoost se posiciona de forma única en el Frente de Pareto, logrando el F1-Score más elevado (0.233) con un tiempo de entrenamiento significativamente inferior ($<$50 s) al de modelos de \textit{Deep Learning} como LSTM ($>$350 s). Esta parsimonia computacional lo convierte en la solución más viable para entornos de producción que manejan flujos masivos de transacciones en tiempo real.
 
 \subsection{Discriminación Robusta y Curvas de Rendimiento}
-La capacidad discriminatoria del modelo es superior en todas las métricas de área bajo la curva. En la Figura \href{../curvas_roc_pr.png}{../curvas_roc_pr.png}, se observa que XGBoost lidera con un ROC-AUC de 0.894 y, más crucialmente, un PR-AUC de 0.156. Este último dato es particularmente relevante en el ámbito académico, ya que el PR-AUC es una métrica mucho más informativa que el ROC-AUC en \textit{datasets} desbalanceados, al ignorar los verdaderos negativos masivos que pueden inflar artificialmente el rendimiento \cite{saito2015, chen2025}.
+La capacidad discriminatoria del modelo es superior en todas las métricas de área bajo la curva. En la Figura \href{../curvas_roc_pr.png}{../curvas\_roc\_pr.png}, se observa que XGBoost lidera con un ROC-AUC de 0.894 y, más crucialmente, un PR-AUC de 0.156. Este último dato es particularmente relevante en el ámbito académico, ya que el PR-AUC es una métrica mucho más informativa que el ROC-AUC en \textit{datasets} desbalanceados, al ignorar los verdaderos negativos masivos que pueden inflar artificialmente el rendimiento \cite{saito2015, chen2025}.
 
 \subsection{Resumen}
 A pesar de la reciente popularidad de las Redes Neuronales de Grafos (GNN) y los Transformers, la literatura científica sostiene que los modelos basados en árboles de decisión potenciados por gradiente siguen definiendo el estado del arte para datos tabulares y estructurados. La capacidad intrínseca de XGBoost para manejar interacciones no lineales de alta dimensionalidad sin requerir el preprocesamiento exhaustivo o la construcción de grafos complejos lo posiciona como el modelo de referencia en la industria financiera.
@@ -628,11 +628,21 @@ En conclusión, XGBoost ofrece una combinación inigualable de \textbf{potencia 
 
 
 
+\section{Ajuste de hiperparámetros}
 \label{sec:h3_hiperparametros}
 
+En esta fase se plantea ajustar los hiperparámetros del modelo XGBoost para optimizar el equilibrio entre \textit{recall}, precisión y coste operativo. Dado el fuerte desbalance del problema, el ajuste debe priorizar métricas robustas como PR-AUC y \(F_1\), evitando decisiones basadas únicamente en \textit{accuracy}.
+
+Como línea de trabajo, se recomienda explorar de forma sistemática los parámetros \texttt{max\_depth}, \texttt{learning\_rate}, \texttt{n\_estimators}, \texttt{subsample} y \texttt{colsample\_bytree}, junto con la calibración del umbral de decisión para alinear el modelo con los costes de negocio.
 
 
+
+\section{Resultados finales del modelado}
 \label{sec:h3_resultados}
+
+Los resultados comparativos obtenidos en este hito muestran que XGBoost ofrece la mejor combinación de capacidad de detección, estabilidad y eficiencia computacional para el escenario de NovaBank. No obstante, para su adopción en producción será necesario validar el modelo con un protocolo temporal, monitorizar \textit{data drift} y definir una política de recalibración periódica del umbral.
+
+En consecuencia, se selecciona XGBoost como modelo base del sistema GuardianAI para la siguiente fase de despliegue y monitorización.
 
 
 
@@ -666,6 +676,9 @@ Phua, C., Lee, V., Smith, K., \& Gayler, R. (2010). \textit{A comprehensive surv
 
 \bibitem{oladele2023} 
 Oladele, S., John, C., \& Marion, L. (2023). \textit{A Comparative Study of Graph Neural Networks (GNNs) vs. traditional supervised learning methods for Identifying Syndicated Credit Fraud and Anomalous Loan Applications}. ResearchGate.
+
+\bibitem{tian2024}
+Tian, X., Li, Y., \& Wang, Z. (2024). \textit{Graph neural networks for fraud detection in financial transactions: methods, challenges and opportunities}. IEEE Access.
 
 \bibitem{forough2021} 
 Forough, J., \& Momtazi, S. (2021). \textit{Ensemble of deep sequential models for credit card fraud detection}. Applied Soft Computing, 99, 106883.
