@@ -4,3 +4,8 @@ matplotlib
 scikit-learn
 scipy
 seaborn
+xgboost
+shap
+imbalanced-learn
+tensorflow
+ipykernel
