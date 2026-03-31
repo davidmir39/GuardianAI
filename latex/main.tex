@@ -473,7 +473,7 @@ En este tercer hito se realizará el modelado de los \textbf{datos} tal como se 
 
 Como referencia de implementación y para facilitar la reproducibilidad, el código desarrollado en GuardianAI está disponible en el repositorio oficial del proyecto en GitHub\footnote{\url{https://github.com/davidmir39/GuardianAI}}.
 
-El presente capítulo se organiza de la siguiente manera: en primer lugar, se listarán una serie de modelos muy usados para la detección de fraude bancario (\S\ref{sec:h3_modelos}), detallando sus fortalezas y debilidades. Posteriormente se realizarán pruebas con dichos modelos para observar cuál da mejores resultados (\S\ref{sec:h3_comparativa}). Con los resultados de las pruebas, se analizarán los resultados de esta, comparándolos con Random Forest, para seleccionar un modelo adecuado (\S\ref{sec:h3_seleccion}). Para finalizar, sobre el modelo seleccionado, se realizará un ajuste fino para escoger los hiperparámetros que mejoren los resultados. (\S\ref{sec:h3_hiperparametros}) y se resumen los resultados obtenidos. (\S\ref{sec:h3_resultados}).
+El presente capítulo se organiza de la siguiente manera: en primer lugar, se listarán una serie de modelos muy usados para la detección de fraude bancario (\S\ref{sec:h3_modelos}), detallando sus fortalezas y debilidades. Posteriormente se realizarán pruebas con dichos modelos para observar cuál da mejores resultados (\S\ref{sec:h3_comparativa}). Con los resultados de las pruebas, se analizarán los resultados de esta, comparándolos con Random Forest, para seleccionar un modelo adecuado (\S\ref{sec:h3_seleccion}). A continuación, sobre el modelo seleccionado, se realizará un ajuste fino para escoger los hiperparámetros que mejoren los resultados (\S\ref{sec:h3_hiperparametros}) y se resumirán los resultados obtenidos (\S\ref{sec:h3_resultados}). Finalmente, se incorpora un análisis de explicabilidad basado en SHAP para justificar de forma transparente las decisiones del modelo (\S\ref{sec:h3_shap}).
 
 \section{Selección de modelos}
 \label{sec:h3_modelos}
@@ -736,6 +736,65 @@ Adicionalmente, la monitorización de \textbf{data drift} en producción es mand
 Para el despliegue efectivo de GuardianAI como sistema de detección en tiempo real, se recomienda: (1) validación temporal sobre holdout test set con datos desbalanceados, (2) análisis de calibración (Hosmer-Lemeshow test), (3) caracterización de residuos (instancias mal-clasificadas), (4) implementación de alertas de drift para cambios en distribuciones de features y tasas de fraude observadas, y (5) política de reentrenamiento trimestral con datos frescos.
 
 En consecuencia, el modelo XGBoost optimizado se selecciona como componente central del sistema GuardianAI para la siguiente fase de despliegue en producción.
+
+\section{Análisis de explicabilidad del modelo con SHAP}
+\label{sec:h3_shap}
+
+La adopción de un modelo de alto rendimiento como XGBoost exige una capa de interpretabilidad adicional para su uso en banca, donde la trazabilidad de decisiones es un requisito técnico y regulatorio. Para este propósito se empleó \textbf{SHAP} (\textit{SHapley Additive exPlanations}), una metodología basada en los valores de Shapley de teoría de juegos cooperativos que descompone la predicción de cada instancia en contribuciones aditivas por variable.
+
+Formalmente, SHAP expresa la predicción de una observación $x$ como:
+\begin{equation*}
+f(x) = \phi_0 + \sum_{i=1}^{M} \phi_i
+\end{equation*}
+donde $\phi_0$ representa el valor base del modelo y cada $\phi_i$ cuantifica la contribución de la característica $i$ al desplazamiento de la predicción hacia mayor o menor probabilidad de fraude.
+
+\subsection{Justificación del uso de SHAP}
+
+SHAP se seleccionó por tres motivos principales en el contexto de GuardianAI:
+\begin{itemize}
+    \item \textbf{Explicabilidad global y local:} permite entender tanto el comportamiento promedio del modelo como la explicación de casos individuales.
+    \item \textbf{Consistencia teórica:} al estar fundamentado en valores de Shapley, ofrece una descomposición atribuible y comparable entre variables.
+    \item \textbf{Aplicabilidad operativa:} facilita justificar alertas de fraude ante analistas de riesgo y clientes, reduciendo el carácter de ``caja negra'' de XGBoost.
+\end{itemize}
+
+\subsection{Interpretación global: Summary Plot}
+
+La Figura~\ref{fig:shap_summary} muestra el \textit{summary plot} de SHAP para el modelo final. Se observa que la señal dominante proviene del tipo de pago, con especial peso de \texttt{payment\_type\_AC}, \texttt{payment\_type\_AD} y \texttt{payment\_type\_AB}. En particular, \texttt{payment\_type\_AD} presenta contribuciones SHAP positivas elevadas en múltiples observaciones, lo que indica una asociación fuerte con mayor probabilidad de fraude.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/shap_summary.png}
+    \caption{Summary plot de SHAP del modelo XGBoost. Cada punto representa una observación y su impacto en la predicción de fraude para cada variable.}
+    \label{fig:shap_summary}
+\end{figure}
+
+Además de las variables de pago, el análisis global identifica patrones relevantes:
+\begin{itemize}
+    \item \texttt{income}: valores altos tienden a incrementar la predicción de fraude en este dataset.
+    \item \texttt{bank\_branch\_count\_8w}: muestra dispersión amplia, compatible con comportamiento no lineal.
+    \item \texttt{name\_email\_similarity}: valores bajos empujan la predicción hacia fraude, coherente con posibles inconsistencias de identidad.
+    \item \texttt{intended\_balcon\_amount}: impacto moderado asociado al importe declarado de operación.
+    \item \texttt{bank\_months\_count} y \texttt{session\_length\_in\_minutes}: aportan señal sobre antigüedad y patrón de interacción del cliente.
+\end{itemize}
+
+Las variables categóricas de empleo (\texttt{employment\_status\_*}) aparecen con menor impacto relativo global, aunque algunas categorías específicas sí contribuyen en casos concretos.
+
+\subsection{Interpretación local: Waterfall Plot}
+
+La Figura~\ref{fig:shap_waterfall} complementa el análisis global con una explicación local de una predicción individual. El \textit{waterfall plot} ordena las contribuciones SHAP de mayor a menor impacto y muestra cómo el modelo transita desde el valor base hasta la probabilidad final estimada para la instancia analizada.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.90\textwidth]{figures/shap_waterfall.png}
+    \caption{Waterfall plot de SHAP para una observación individual. Se visualiza la contribución acumulada de las variables desde el valor base hasta la predicción final.}
+    \label{fig:shap_waterfall}
+\end{figure}
+
+Desde un punto de vista operativo, esta vista local es especialmente útil para auditoría de decisiones: permite identificar qué factores concretos activaron la alerta de fraude en una transacción específica y con qué magnitud.
+
+\subsection{Conclusión del análisis de explicabilidad}
+
+El análisis SHAP confirma que el modelo XGBoost no solo alcanza un alto rendimiento predictivo, sino que también mantiene un nivel de interpretabilidad adecuado para el dominio financiero. La combinación de vista global (priorización de variables) y vista local (explicación de casos) permite al sistema GuardianAI justificar sus decisiones de forma trazable y accionable.
 
 \section{Conclusiones del Hito 3}
 \label{sec:h3_conclusiones}
