@@ -22,6 +22,10 @@
   {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
 \titlespacing*{\chapter}{0pt}{-20pt}{40pt}
 
+% --- Carpeta de figuras ---
+\usepackage{graphicx}
+\graphicspath{ {../figures/} }
+
 \begin{document}
 
 % --- PORTADA ---
@@ -276,7 +280,7 @@ El punto de partida del análisis es comprender la distribución de la variable 
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/target_distribution.png}
+    \includegraphics[width=0.85\textwidth]{target_distribution.png}
     \caption{Distribución de la variable objetivo \texttt{fraud\_bool}. Se observa un desbalanceo extremo: menos del 1\% de las solicitudes son fraudulentas.}
     \label{fig:target_dist}
 \end{figure}
@@ -306,14 +310,14 @@ Para evaluar la capacidad discriminativa de las variables, se han generado histo
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{figures/histograms_by_class.png}
+    \includegraphics[width=0.75\textwidth]{histograms_by_class.png}
     \caption{Histogramas por clase (densidad normalizada) para las 10 variables más correlacionadas con fraude. La normalización por densidad permite comparar las distribuciones a pesar del desbalanceo.}
     \label{fig:histograms_class}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{figures/boxplots_by_class.png}
+    \includegraphics[width=0.75\textwidth]{boxplots_by_class.png}
     \caption{Boxplots comparativos entre solicitudes legítimas y fraudulentas para las variables más relevantes.}
     \label{fig:boxplots_class}
 \end{figure}
@@ -333,7 +337,7 @@ Se ha aplicado el método del rango intercuartílico (IQR) para cuantificar la p
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/outliers_iqr.png}
+    \includegraphics[width=0.85\textwidth]{outliers_iqr.png}
     \caption{Porcentaje de outliers por variable según el método IQR. Las variables de velocidad y actividad reciente presentan los mayores porcentajes de valores atípicos.}
     \label{fig:outliers}
 \end{figure}
@@ -347,14 +351,14 @@ Un aspecto fundamental del análisis de datos en sistemas de IA es la identifica
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.65\textwidth]{figures/fraud_rate_by_category.png}
+    \includegraphics[width=0.65\textwidth]{fraud_rate_by_category.png}
     \caption{Tasa de fraude desglosada por cada variable categórica. Se observan diferencias relevantes según el tipo de pago, la situación laboral y el tipo de vivienda.}
     \label{fig:bias_category}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/fraud_rate_by_binary.png}
+    \includegraphics[width=0.85\textwidth]{fraud_rate_by_binary.png}
     \caption{Tasa de fraude desglosada por variables binarias. Variables como \texttt{foreign\_request} y \texttt{keep\_alive\_session} muestran diferencias pronunciadas.}
     \label{fig:bias_binary}
 \end{figure}
@@ -400,7 +404,7 @@ La Figura~\ref{fig:feat_importance} muestra las 20 variables más importantes se
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/feature_importance.png}
+    \includegraphics[width=0.85\textwidth]{feature_importance.png}
     \caption{Top 20 características más importantes según la importancia Gini del RandomForest. Se observa que las variables de velocidad e ingresos dominan el modelo.}
     \label{fig:feat_importance}
 \end{figure}
@@ -409,7 +413,7 @@ La Figura~\ref{fig:model_eval} presenta la matriz de confusión, la curva ROC y 
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.95\textwidth]{figures/model_evaluation.png}
+    \includegraphics[width=0.95\textwidth]{model_evaluation.png}
     \caption{Evaluación del modelo baseline: matriz de confusión (izquierda), curva ROC (centro) y curva Precision-Recall (derecha).}
     \label{fig:model_eval}
 \end{figure}
@@ -550,7 +554,7 @@ La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:m
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.9\textwidth]{figures/comparacion_metricas.png}
+    \includegraphics[width=0.9\textwidth]{comparacion_metricas.png}
     \caption{Comparativa de métricas estadísticas por modelo. Se observa la dominancia técnica de XGBoost en precisión y exhaustividad.}
     \label{fig:metricas}
 \end{figure}
@@ -558,11 +562,11 @@ La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:m
 Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0.720), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost duplica la eficacia de la Regresión Logística (0.156 vs 0.049), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
 
 \subsection{Curvas de Rendimiento y Capacidad Discriminatoria}
-La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0.011), lo cual valida la utilidad de la selección algorítmica.
+La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0.011).
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.9\textwidth]{figures/curvas_roc_pr.png}
+    \includegraphics[width=0.9\textwidth]{curvas_roc_pr.png}
     \caption{Curvas ROC (izquierda) y Precisión-Recall (derecha). El modelo LSTM muestra una capacidad de generalización intermedia (AUC 0.828).}
     \label{fig:curvas}
 \end{figure}
@@ -574,7 +578,7 @@ El análisis de las matrices normalizadas (Figura \ref{fig:matrices}) es crític
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.9\textwidth]{figures/matrices_confusion.png}
+    \includegraphics[width=0.9\textwidth]{matrices_confusion.png}
     \caption{Matrices de confusión normalizadas. XGBoost captura el 27.93\% de los fraudes con solo un 1.19\% de falsas alarmas.}
     \label{fig:matrices}
 \end{figure}
@@ -586,7 +590,7 @@ El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimension
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.7\textwidth]{figures/radar_modelos.png}
+    \includegraphics[width=0.7\textwidth]{radar_modelos.png}
     \caption{Gráfico de radar que ilustra el balance entre métricas de precisión, exhaustividad y AUC.}
     \label{fig:radar}
 \end{figure}
@@ -595,7 +599,7 @@ Finalmente, la eficiencia computacional debe ponderarse frente a la calidad pred
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/tiempo_vs_f1.png}
+    \includegraphics[width=0.8\textwidth]{tiempo_vs_f1.png}
     \caption{Trade-off entre calidad (F1-Score) y tiempo de entrenamiento. Las arquitecturas LSTM y GNN presentan una ineficiencia relativa en este entorno tabular.}
     \label{fig:tiempo}
 \end{figure}
@@ -703,12 +707,12 @@ Los resultados cuantitativos se resumen en la Tabla \ref{tab:comparacion_base_op
 
 \subsection{Análisis de Confianza predictiva}
 
-Un aspecto complementario es la evaluación del \textit{grado de certeza} (confidence score) con que el modelo emite predicciones. La Figura \ref{fig:confidence} demuestra que el modelo optimizado concentra las probabilidades predichas en valores extremales (cercanos a 0 y 1), reduciendo la región de incertidumbre intermedia. Específicamente: solapamiento en región [0.40, 0.60] se redujo de 3.2\% a 1.1\% (-66\%), indicativo de mayor polarización de decisiones. Adicionalmente, la confianza media para predicciones correctas es 0.9876, mientras que para predicciones incorrectas es 0.7234, reflejando calibración efectiva del modelo.
+Un aspecto complementario es la evaluación del \textit{grado de certeza} (confidence score) con que el modelo emite predicciones. La Figura \ref{fig:confidence} demuestra que el modelo optimizado concentra las probabilidades predichas en valores extremos (cercanos a 0 y 1), reduciendo la región de incertidumbre intermedia. Específicamente: solapamiento en región [0.40, 0.60] se redujo de 3.2\% a 1.1\% (-66\%), indicativo de mayor polarización de decisiones. Adicionalmente, la confianza media para predicciones correctas es 0.9876, mientras que para predicciones incorrectas es 0.7234, reflejando calibración efectiva del modelo.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.95\textwidth]{xgboost_confidence_analysis.png}
-    \caption{Análisis de grado de certeza: distribución de confianza por clase predicha (izq) y comparación de certeza en predicciones correctas versus incorrectas (der). La concentración en probabilidades extremales y la separación entre líneas de tendencia central confirman calibración mejorada.}
+    \caption{Análisis de grado de certeza: distribución de confianza por clase predicha (izq) y comparación de certeza en predicciones correctas versus incorrectas (der). La concentración en probabilidades extremos y la separación entre líneas de tendencia central confirman calibración mejorada.}
     \label{fig:confidence}
 \end{figure}
 
@@ -763,7 +767,7 @@ La Figura~\ref{fig:shap_summary} muestra el \textit{summary plot} de SHAP para e
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.95\textwidth]{figures/shap_summary.png}
+    \includegraphics[width=0.95\textwidth]{shap_summary.png}
     \caption{Summary plot de SHAP del modelo XGBoost. Cada punto representa una observación y su impacto en la predicción de fraude para cada variable.}
     \label{fig:shap_summary}
 \end{figure}
@@ -785,7 +789,7 @@ La Figura~\ref{fig:shap_waterfall} complementa el análisis global con una expli
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.90\textwidth]{figures/shap_waterfall.png}
+    \includegraphics[width=0.90\textwidth]{shap_waterfall.png}
     \caption{Waterfall plot de SHAP para una observación individual. Se visualiza la contribución acumulada de las variables desde el valor base hasta la predicción final.}
     \label{fig:shap_waterfall}
 \end{figure}
@@ -808,7 +812,7 @@ El presente hito ha consolidado el desarrollo del núcleo predictivo de Guardian
     
     \item \textbf{Optimización de configuración hiperparamétrica:} Búsqueda sistemática identificó configuración óptima que mejora todas las métricas simultáneamente (ROC-AUC: 0.9979 $\rightarrow$ 0.9999, Recall: 0.9789 $\rightarrow$ 0.9946), representando reducción del 16\% en tasa de falsos negativos.
     
-    \item \textbf{Calibración y confianza mejoradas:} Modelo optimizado exhibe concentración de probabilidades predichas en valores extremales, reduciendo incertidumbre y mejorando utilidad operativa de puntuaciones de riesgo.
+    \item \textbf{Calibración y confianza mejoradas:} Modelo optimizado exhibe concentración de probabilidades predichas en valores extremos, reduciendo incertidumbre y mejorando utilidad operativa de puntuaciones de riesgo.
     
     \item \textbf{Identificación de drivers predictivos:} Características comportamentales (\texttt{keep\_alive\_session}, \texttt{has\_other\_cards}, \texttt{phone\_home\_valid}) representan 61\% del poder discriminativo, alineado con teoría de fraude que predice inconsistencia con patrones históricos.
 \end{enumerate}
