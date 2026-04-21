@@ -1487,7 +1487,7 @@
     "\n",
     "Random Forest queda segundo en la mayoria de metricas con un tiempo de entrenamiento considerablemente mayor. Regresion Logistica confirma que el problema requiere no linealidades que un modelo lineal no puede capturar. GNN y LSTM obtienen rendimientos inferiores a los modelos de ensemble: esto es coherente con la literatura — en datos tabulares sin estructura secuencial real ni grafo de relaciones definido, los modelos de gradient boosting son el estado del arte.\n",
     "\n",
-    "**XGBoost se selecciona como modelo para la fase de optimizacion (NB03)**.\n",
+    "**XGBoost se selecciona como modelo para la fase de optimizacion (NB03)**. En la misma fase, también se optimizarán tanto Regresión Logística como Random Forest, sus tiempos de ejecución y resultados han sido igualmente competitivos y serán tenidos en cuenta por si acaso. GNN y LSTM quedan descartados durante la fase de optimización al requerir unos recursos computacionales mayores a los que disponemos.\n",
     "\n",
     "---\n",
     "\n",
@@ -1500,16 +1500,10 @@
     "- Riesgo reputacional si el sistema bloquea demasiadas operaciones validas.\n",
     "\n",
     "XGBoost es el mejor punto de partida para la optimizacion, pero los resultados actuales deben interpretarse como una **linea de referencia comparativa**, no como metricas de produccion. La fase NB03 abordara esto mediante:\n",
-    "1. Aplicacion de SMOTE a **todos** los modelos de forma consistente.\n",
-    "2. Ajuste de hiperparametros sobre **todos** los candidatos.\n",
+    "1. Aplicacion de SMOTE a **XGBoost, Random Forest y Regresión Logística** de forma consistente.\n",
+    "2. Ajuste de hiperparametros sobre **XGBoost, Random Forest y Regresión Logística**.\n",
     "3. Evaluacion rigurosa sobre el conjunto de test con desbalanceo original para obtener metricas realistas."
    ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "d4269957",
-   "metadata": {},
-   "source": []
   }
  ],
  "metadata": {
