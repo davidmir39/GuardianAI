@@ -248,3 +248,18 @@ __marimo__/
 *.synctex.gz
 *.pdf
 Base.csv
+
+### Modelos y artefactos entrenados (no versionar) ###
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+models/
+checkpoints/
+
+### Configuraciones de IDE / herramientas ###
+.roo/
+mcp.json
+.claude/

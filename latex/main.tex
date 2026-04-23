@@ -77,7 +77,7 @@ Para dar respuesta a esta pregunta, el \textbf{objetivo general} del proyecto es
 
 Los \textbf{objetivos específicos} son los siguientes:
 \begin{itemize}
-    \item Construir un \textit{pipeline} de datos automatizado que aplique técnicas de sobremuestreo sintético (SMOTE) para mitigar el desbalanceo extremo de las clases.
+    \item Construir un \textit{pipeline} de datos automatizado capaz de mitigar el desbalanceo extremo de clases. Inicialmente se contempla sobremuestreo sintético (SMOTE), si bien la elección final entre SMOTE, ponderación de clases (\texttt{class\_weight}) o ajuste de \texttt{scale\_pos\_weight} en XGBoost se realizará empíricamente en el Hito 3 en función del comportamiento del modelo sobre el conjunto de test original desbalanceado.
     \item Implementar y entrenar un modelo predictivo evaluando candidatos basados en \textit{Extreme Gradient Boosting} (XGBoost). La elección preliminar de esta familia de modelos se justifica por su rendimiento estado-del-arte documentado en la literatura científica para conjuntos de datos tabulares, altamente desbalanceados y no lineales, características propias de las transacciones financieras \cite{dalpozz2017credit}.
     \item Priorizar métricas técnicas de \textit{Machine Learning} adecuadas para datos severamente desbalanceados, como el Área bajo la curva Precision-Recall (AUPRC) y el $F_1$-Score, descartando la exactitud (\textit{Accuracy}) como métrica principal, y alineando estas métricas posteriormente con el coste de negocio.
     \item Integrar una capa de explicabilidad mediante la librería SHAP (\textit{SHapley Additive exPlanations}), permitiendo justificar de forma interpretable el motivo del bloqueo de una operación.
@@ -97,7 +97,7 @@ El desarrollo de GuardianAI refleja un escenario realista de producto de IA, don
 El equipo técnico está formado por cuatro ingenieros junior con roles específicos:
 
 \textbf{David Miguel Miranda Rodríguez. Rol principal: Analista / Ingeniero de Datos.}
-Responsable del diseño del \textit{pipeline} de ingesta y preprocesamiento. Su labor incluye la limpieza de los datos tabulares, el escalado de variables no estandarizadas (Monto y Tiempo) y la aplicación de técnicas de \textit{resampling} (SMOTE) para generar un espacio de entrenamiento equilibrado sin introducir ruido artificial.
+Responsable del diseño del \textit{pipeline} de ingesta y preprocesamiento. Su labor incluye la limpieza de los datos tabulares, el escalado estandarizado de variables numéricas, la codificación de variables categóricas y la evaluación empírica de técnicas de manejo del desbalance de clases (\textit{resampling} SMOTE frente a ponderación por clases) para seleccionar la alternativa que produzca mejor desempeño sobre datos de test representativos.
 
 \textbf{Alejandro Córcoles Roldán. Rol principal: Machine Learning Engineer.}
 Encargado del núcleo algorítmico del sistema. Sus tareas abarcan la selección del modelo (XGBoost), la optimización de hiperparámetros y la validación cruzada. Su principal desafío es garantizar que el modelo no caiga en la ``trampa del Accuracy'' y logre maximizar la identificación de fraudes (Recall) sin penalizar severamente las transacciones legítimas (Precision).
@@ -524,9 +524,13 @@ Ahora pasaremos a realizar una comparativa con unas implementaciones básicas de
 \section{Comparativa de modelos}
 \label{sec:h3_comparativa}
 
-Las métricas seleccionadas para la comparativa, serán las ya seleccionadas previamente \ref{sec:h2_metricas} para poder realizar una comparación justa con el modelo obtenido en la fase previa. 
+Las métricas seleccionadas para la comparativa son las ya definidas previamente (\S\ref{sec:h2_metricas}), para poder realizar una comparación justa con el modelo \textit{baseline} obtenido en la fase previa.
 
-Con esas métricas establecidas, se ejecutan los modelos, y se obtienen los resultados siguientes:
+Con el objetivo de garantizar una comparación metodológicamente válida, todos los modelos candidatos han sido entrenados sobre el \textbf{mismo pipeline de preprocesamiento unificado}: un \texttt{ColumnTransformer} que aplica \texttt{StandardScaler} a las variables numéricas y \texttt{OneHotEncoder} a las categóricas, encadenado antes de cada estimador. Este preprocesamiento se aplica a todos los modelos (XGBoost, Random Forest, Regresión Logística, LSTM y GNN), aunque algunos de ellos (árboles) sean invariantes al escalado, con el fin de aislar las diferencias de rendimiento al algoritmo y no al tratamiento de los datos.
+
+Respecto al desbalance de clases, en esta comparativa \textbf{no se aplica SMOTE}. El tratamiento se realiza mediante ponderación de clases nativa de cada modelo: \texttt{class\_weight="balanced"} para Random Forest y Regresión Logística, y \texttt{scale\_pos\_weight} para XGBoost (con valor proporcional a la inversa de la prevalencia de fraude). Las matrices de evaluación se calculan sobre el conjunto de \textbf{test original desbalanceado} (prevalencia de fraude $\approx$1,1\%), no sobre datos resampleados, evitando así artefactos optimistas de \textit{data leakage}.
+
+Con esas métricas y ese protocolo establecidos, se ejecutan los modelos y se obtienen los resultados siguientes:
 
 \begin{table}[htbp]
     \centering
@@ -537,20 +541,20 @@ Con esas métricas establecidas, se ejecutan los modelos, y se obtienen los resu
             \toprule
             \textbf{Modelo} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1-Score} & \textbf{PR-AUC} & \textbf{ROC-AUC} & \textbf{Umbral} & \textbf{Tiempo (s)} \\
             \midrule
-            XGBoost         & 0.2001 & 0.2793 & 0.2331 & 0.1564 & 0.8938 & 0.8900 & 7.4000 \\
-            Random Forest   & 0.1739 & 0.2295 & 0.1978 & 0.1110 & 0.8720 & 0.7700 & 33.4000 \\
-            LSTM            & 0.1053 & 0.2390 & 0.1462 & 0.0735 & 0.8277 & 0.8600 & 350.5000 \\
-            Reg. Logística  & 0.0861 & 0.1460 & 0.1083 & 0.0486 & 0.7628 & 0.8700 & 37.2000 \\
-            GNN             & 0.0705 & 0.1252 & 0.0902 & 0.0395 & 0.7203 & 0.7700 & 242.7000 \\
+            XGBoost         & 0.2280 & 0.2443 & 0.2359 & 0.1711 & 0.8944 & 0.9100 & 76.9000 \\
+            Reg. Logística  & 0.1817 & 0.2516 & 0.2110 & 0.1363 & 0.8755 & 0.9200 & 3.7000 \\
+            GNN             & 0.1659 & 0.2715 & 0.2060 & 0.1333 & 0.8710 & 0.8600 & 1527.5000 \\
+            Random Forest   & 0.1560 & 0.2620 & 0.1956 & 0.1243 & 0.8768 & 0.7700 & 32.8000 \\
+            LSTM            & 0.0789 & 0.2366 & 0.1183 & 0.0593 & 0.7998 & 0.8400 & 153.5000 \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
-Tal como se observa, los mejores números en todos los parámetros son para \textbf{datos}, demostrando no solo tener más aciertos, también menos errores, e incluso siendo más rápida en general que las alternativas. 
+Tal como se observa, los mejores números en todos los parámetros son para \textbf{XGBoost}, demostrando no solo mayor capacidad discriminativa (PR-AUC $=0{,}171$ frente a $0{,}124$ de Random Forest y $0{,}136$ de Regresión Logística), sino también una eficiencia computacional razonable ($76{,}9$ s de entrenamiento frente a los $1527{,}5$ s de la GNN o los $153{,}5$ s de la LSTM). Conviene destacar que las métricas absolutas (F1 $\approx 0{,}24$, PR-AUC $\approx 0{,}17$) son moderadas en términos académicos; esto es coherente con lo esperado en fraude financiero real, donde la extrema prevalencia del 1,1\% impone un techo estructural a la precisión. Estos valores sustituyen a cualquier resultado previo próximo a 0,99, los cuales respondían a un artefacto de \textit{data leakage} (evaluación sobre datos balanceados por SMOTE) que ha sido corregido en esta versión del informe.
 
 \subsection{Análisis de Métricas Globales}
-La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:metricas}) revela que los modelos basados en \textit{gradient boosting} (XGBoost) superan sistemáticamente a las arquitecturas de \textit{deep learning} en este conjunto de datos específico. XGBoost lidera en todas las categorías, destacando un F1-Score de 0.233 y un ROC-AUC de 0.894.
+La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:metricas}) revela que los modelos basados en \textit{gradient boosting} (XGBoost) superan sistemáticamente a las arquitecturas de \textit{deep learning} en este conjunto de datos específico. XGBoost lidera en todas las categorías, destacando un F1-Score de 0.236 y un ROC-AUC de 0.894.
 
 \begin{figure}[h]
     \centering
@@ -559,7 +563,7 @@ La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:m
     \label{fig:metricas}
 \end{figure}
 
-Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0.720), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost duplica la eficacia de la Regresión Logística (0.156 vs 0.049), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
+Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0.799), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost supera a la Regresión Logística (0.171 vs 0.136), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
 
 \subsection{Curvas de Rendimiento y Capacidad Discriminatoria}
 La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0.011).
@@ -579,11 +583,11 @@ El análisis de las matrices normalizadas (Figura \ref{fig:matrices}) es crític
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\textwidth]{matrices_confusion.png}
-    \caption{Matrices de confusión normalizadas. XGBoost captura el 27.93\% de los fraudes con solo un 1.19\% de falsas alarmas.}
+    \caption{Matrices de confusión normalizadas. XGBoost captura el 24.43\% de los fraudes con solo un 1.1\% de falsas alarmas.}
     \label{fig:matrices}
 \end{figure}
 
-Se observa que la GNN presenta el menor recall (12.52\%), fallando en identificar la mayoría de las transacciones fraudulentas bajo los parámetros actuales. Por el contrario, LSTM muestra un recall competitivo (23.90\%), pero a costa de una mayor tasa de falsos positivos (2.16\%), lo que indica una menor precisión en la identificación de la clase positiva \cite{martini2025}.
+Se observa que LSTM presenta el menor recall (23.66\%), situándose en la cola del conjunto, mientras que la GNN registra un recall competitivo (27.15\%), aunque con menor precisión (16.59\%), lo que indica una mayor tasa de falsos positivos y, en consecuencia, un PR-AUC más bajo que el de XGBoost \cite{martini2025}.
 
 \subsection{Perfil Operativo y Eficiencia del Sistema}
 El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimensional de cada algoritmo. XGBoost y Random Forest presentan las áreas de cobertura más equilibradas.
@@ -595,7 +599,7 @@ El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimension
     \label{fig:radar}
 \end{figure}
 
-Finalmente, la eficiencia computacional debe ponderarse frente a la calidad predictiva (Figura \ref{fig:tiempo}). XGBoost se posiciona como el modelo más eficiente en términos de Pareto: logra el F1-Score más alto con un tiempo de entrenamiento mínimo ($<$ 50s).
+Finalmente, la eficiencia computacional debe ponderarse frente a la calidad predictiva (Figura \ref{fig:tiempo}). XGBoost se posiciona como el modelo más eficiente en términos de Pareto: logra el F1-Score más alto con un tiempo de entrenamiento de aproximadamente 77 s (frente a los 153 s de LSTM o los 1.528 s de la GNN).
 
 \begin{figure}[h]
     \centering
@@ -604,7 +608,7 @@ Finalmente, la eficiencia computacional debe ponderarse frente a la calidad pred
     \label{fig:tiempo}
 \end{figure}
 
-Arquitecturas complejas como LSTM requieren más de 350 segundos para ser entrenadas, lo cual es casi 10 veces el tiempo de XGBoost, sin ofrecer una mejora en la detección. Esto justifica la preferencia industrial por modelos de \textit{gradient boosting} para datos tabulares masivos \cite{chen2016, das2023}.
+Arquitecturas complejas como GNN o LSTM requieren entre 150 y 1.500 segundos para ser entrenadas, lo cual representa entre $\approx 2\times$ y $\approx 20\times$ el tiempo de XGBoost sin ofrecer una mejora en la detección. Esto justifica la preferencia industrial por modelos de \textit{gradient boosting} para datos tabulares masivos \cite{chen2016, das2023}.
 
 
 
@@ -637,13 +641,25 @@ En conclusión, XGBoost ofrece una combinación inigualable de \textbf{potencia 
 \section{Ajuste de hiperparámetros}
 \label{sec:h3_hiperparametros}
 
-Tras la identificación de XGBoost como arquitectura óptima en la sección anterior, la presente fase se dedica a la optimización fina de su configuración hiperparamétrica. Dado que el rendimiento de los modelos basados en gradient boosting es sensible a ajustes marginales en la parametrización \cite{chen2016}, se empleó un protocolo de búsqueda sistemática sobre un espacio de alta dimensionalidad.
+Tras la identificación de XGBoost como arquitectura óptima en la sección anterior, la presente fase se dedica a la optimización fina de su configuración hiperparamétrica. Dado que el rendimiento de los modelos basados en gradient boosting es sensible a ajustes marginales en la parametrización \cite{chen2016}, se empleó un protocolo de búsqueda sistemática acompañado de un análisis empírico sobre la utilidad de SMOTE en este dataset.
 
 \subsection{Metodología de Búsqueda}
 
-Se utilizó \textit{RandomizedSearchCV} con validación cruzada 5-fold sobre 50 iteraciones, explorando simultáneamente 8 hiperparámetros críticos: \texttt{n\_estimators}, \texttt{max\_depth}, \texttt{learning\_rate}, \texttt{subsample}, \texttt{colsample\_bytree}, \texttt{min\_child\_weight}, \texttt{reg\_alpha}, y \texttt{reg\_lambda}. Este espacio combinatorio representa 390,625 configuraciones posibles ($5^8$), de las cuales fueron exploradas 50 (0.0128\% de cobertura). La métrica primaria de optimización fue el área bajo la curva ROC (AUC-ROC), con métricas secundarias de evaluación: Precision, Recall, F\(_1\)-Score y Accuracy.
+Se utilizó \textit{RandomizedSearchCV} con validación cruzada 3-fold sobre 30 iteraciones (90 entrenamientos en total), explorando simultáneamente 8 hiperparámetros críticos: \texttt{n\_estimators}, \texttt{max\_depth}, \texttt{learning\_rate}, \texttt{subsample}, \texttt{colsample\_bytree}, \texttt{min\_child\_weight}, \texttt{reg\_alpha} y \texttt{reg\_lambda}. La métrica primaria de optimización fue el PR-AUC (\texttt{average\_precision}, adecuada para desbalanceo extremo), con métricas secundarias de evaluación: Precision, Recall, F\(_1\)-Score y ROC-AUC. El protocolo completo se implementa en el notebook \texttt{05\_final\_model\_production.ipynb}, que además persiste el modelo resultante y su preprocesador en \texttt{models/} mediante \texttt{joblib} para su consumo por el notebook de explicabilidad (NB04).
 
-Previamente al ajuste de hiperparámetros, el conjunto de entrenamiento fue reprocesado mediante un pipeline mejorado: (1) split 70/15/15 (train/validación/test), (2) aplicación de \textbf{SMOTE} para síntesis de muestras minoritarias, alcanzando balance 50/50 y 1.38 millones de muestras post-procesadas, y (3) escalado estándar de variables numéricas con preservación de distribuciones categóricas. Este protocolo de preprocesamiento es crítico para evitar sesgos inducidos por desbalance de clase extremo.
+El conjunto fue particionado mediante un \textit{split} estratificado 70/15/15 (train/validación/test), preservando en cada partición la prevalencia original de fraude ($\approx 1{,}1\%$). Todas las métricas reportadas en esta sección se calculan \textbf{exclusivamente sobre el conjunto de test original desbalanceado} y nunca sobre el conjunto de entrenamiento ni sobre datos sintéticos generados por SMOTE; este protocolo es el que se ha aplicado tras la detección y corrección del \textit{data leakage} identificado en versiones anteriores del trabajo.
+
+\subsection*{Sobre la aplicación de SMOTE: hallazgo empírico}
+
+Inicialmente el equipo planificó aplicar SMOTE sobre el conjunto de entrenamiento con el objetivo de alcanzar un balance 50/50 antes de entrenar XGBoost (esta ruta se materializó en el notebook \texttt{03\_pipeline\_and\_tuning.ipynb}). Sin embargo, la evaluación honesta sobre el test desbalanceado reveló un fenómeno contraintuitivo: \textbf{SMOTE degrada el rendimiento de XGBoost en este dataset}. En particular, la configuración con SMOTE + hiperparámetros optimizados (NB03) alcanzó un F1-Score de $0{,}1912$ y un PR-AUC de $0{,}1174$, mientras que la misma arquitectura sin SMOTE y con ponderación de clases mediante \texttt{scale\_pos\_weight} optimizada en NB05 alcanzó un F1-Score de $0{,}2490$ y un PR-AUC de $0{,}1830$.
+
+Nuestra hipótesis explicativa es que el \textit{Bank Account Fraud Dataset Suite} \cite{jesus2022bank} es un conjunto \emph{ya sintético} (generado mediante modelos generativos a partir de datos reales de fraude bancario). Aplicar SMOTE sobre datos sintéticos implica interpolar entre muestras que son ellas mismas aproximaciones, lo que introduce ruido adicional y difumina las fronteras de decisión de la clase minoritaria en lugar de fortalecerlas. Adicionalmente, XGBoost dispone del parámetro \texttt{scale\_pos\_weight}, que ajusta directamente los gradientes durante el entrenamiento en función del desbalance real, sin alterar el espacio de características observado.
+
+En consecuencia, \textbf{se descarta SMOTE para la versión de producción} y se adopta XGBoost con \texttt{scale\_pos\_weight} $= (N_{neg}/N_{pos}) \approx 89{,}66$ como configuración final. Los resultados de la optimización de hiperparámetros que se presentan a continuación se reportan sobre esta arquitectura (XGBoost + \texttt{scale\_pos\_weight}, sin SMOTE), tal como se implementa en NB05, y evaluados siempre sobre el test original desbalanceado.
+
+\subsection*{Nota sobre el alcance de la búsqueda}
+
+Siguiendo el principio metodológico de aplicar búsqueda de hiperparámetros a todos los modelos candidatos, en el notebook \texttt{03\_pipeline\_and\_tuning.ipynb} se ejecutó \textit{RandomizedSearchCV} también para Random Forest y Regresión Logística (bajo la configuración con SMOTE que posteriormente se descartó por los motivos descritos). Los resultados (F1-Score $0{,}1652$ para RF optimizado y $0{,}1653$ para LR optimizada, ambos inferiores a sus respectivas \textit{baselines} sin SMOTE de NB02) confirman empíricamente las dos conclusiones estructurales de esta memoria: (i) que la superioridad de \textit{gradient boosting} sobre Random Forest y Regresión Logística en datos tabulares desbalanceados es estructural y no se revierte por ajuste fino \cite{chen2016, das2023}, y (ii) que SMOTE es contraproducente en este dataset. En consecuencia, el esfuerzo principal de optimización se concentró en XGBoost, cuyo protocolo completo se ejecuta en NB05 sobre el pipeline sin SMOTE aquí descrito.
 
 \subsection{Resultados de la Optimización}
 
@@ -651,29 +667,29 @@ La búsqueda identificó una configuración óptima con los siguientes parámetr
 
 \begin{table}[H]
     \centering
-    \caption{Parámetros Óptimos Identificados mediante RandomizedSearchCV (50 iteraciones, 5-fold CV)}
+    \caption{Parámetros Óptimos Identificados mediante RandomizedSearchCV (30 iteraciones, 3-fold CV, scoring \texttt{average\_precision})}
     \label{tab:hiperparametros_optimos}
     \resizebox{0.9\textwidth}{!}{
         \begin{tabular}{lllll}
             \toprule
             \textbf{Parámetro} & \textbf{Valor} & \textbf{Rango Explorado} & \textbf{Tipo} & \textbf{Interpretación} \\
             \midrule
-            n\_estimators & 200 & [100, 300] & Complejidad & Suficiencia de árboles \\
-            max\_depth & 6 & [4, 9] & Regularización & Profundidad moderada \\
-            learning\_rate & 0.1 & [0.01, 0.2] & Convergencia & Convergencia conservadora \\
-            subsample & 0.8 & [0.6, 1.0] & Regularización & 20\% de pérdida deliberada \\
-            colsample\_bytree & 0.8 & [0.6, 1.0] & Regularización & Subsampling de features \\
-            min\_child\_weight & 1 & [1, 5] & Regularización & Permitividad de nodos hoja \\
-            reg\_alpha & 1.0 & [0.0, 2.0] & Regularización & L1: penalización de magnitud \\
-            reg\_lambda & 1.0 & [0.0, 2.0] & Regularización & L2: penalización de cuadrados \\
+            n\_estimators & 223 & [100, 300] & Complejidad & Suficiencia de árboles \\
+            max\_depth & 4 & [4, 10] & Regularización & Profundidad moderada \\
+            learning\_rate & 0.086 & [0.01, 0.20] & Convergencia & Convergencia conservadora \\
+            subsample & 0.943 & [0.6, 1.0] & Regularización & Subsampling de filas \\
+            colsample\_bytree & 0.993 & [0.6, 1.0] & Regularización & Subsampling de features \\
+            min\_child\_weight & 9 & [1, 10] & Regularización & Permitividad de nodos hoja \\
+            reg\_alpha & 0.508 & [0.0, 1.0] & Regularización & L1: penalización de magnitud \\
+            reg\_lambda & 0.696 & [0.0, 1.0] & Regularización & L2: penalización de cuadrados \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
-La convergencia observada en la búsqueda aleatoria sugiere identificación robusta de región óptima, corroborada por estabilidad en métricas de validación cruzada: media AUC-ROC = 0.9979 ± 0.0008, indicativa de varianza mínima (coeficiente de variación: 0.0008\%).
+La búsqueda convergió a una región del espacio coherente con la literatura para datos tabulares desbalanceados (profundidad moderada, learning rate conservador y regularización L1/L2 activa), lo que sugiere una identificación razonable del óptimo local accesible a \textit{RandomizedSearchCV} dado el presupuesto computacional.
 
-La Figura \ref{fig:xgb_comparison} presenta una comparación integral del modelo base (parámetros genéricos) versus modelo optimizado, evaluados sobre el conjunto de entrenamiento post-SMOTE:
+La Figura \ref{fig:xgb_comparison} presenta una comparación integral del modelo base (parámetros por defecto con \texttt{scale\_pos\_weight}) frente al modelo optimizado, ambos evaluados sobre el \textbf{conjunto de test original desbalanceado} (prevalencia de fraude $\approx 1{,}1\%$):
 
 \begin{figure}[H]
     \centering
@@ -686,39 +702,41 @@ Los resultados cuantitativos se resumen en la Tabla \ref{tab:comparacion_base_op
 
 \begin{table}[H]
     \centering
-    \caption{Comparación de Métricas: Modelo Base vs Modelo Optimizado}
+    \caption{Comparación de Métricas: Modelo Base vs Modelo Optimizado (evaluación sobre test original desbalanceado, prevalencia de fraude $\approx 1{,}1\%$)}
     \label{tab:comparacion_base_opt}
     \resizebox{0.95\textwidth}{!}{
         \begin{tabular}{lcccr}
             \toprule
             \textbf{Métrica} & \textbf{Modelo Base} & \textbf{Modelo Optimizado} & \textbf{$\Delta$ Absoluto} & \textbf{$\Delta$ Relativo (\%)} \\
             \midrule
-            Accuracy & 0.9868 & 0.9971 & +0.0103 & +1.05 \\
-            Precision & 0.9945 & 0.9998 & +0.0053 & +0.53 \\
-            Recall & 0.9789 & 0.9946 & +0.0157 & \textbf{+1.60} \\
-            F$_1$-Score & 0.9866 & 0.9971 & +0.0105 & +1.06 \\
-            ROC-AUC & 0.9979 & 0.9999 & +0.0020 & +0.20 \\
+            Precision   & 0.2073 & 0.2295 & +0.0222 & +10.71 \\
+            Recall      & 0.2956 & 0.2721 & -0.0235 & -7.95 \\
+            F$_1$-Score & 0.2437 & 0.2490 & +0.0053 & +2.17 \\
+            PR-AUC      & 0.1744 & 0.1830 & +0.0086 & +4.93 \\
+            ROC-AUC     & 0.8941 & 0.8990 & +0.0049 & +0.55 \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
-\textbf{Hallazgo crítico:} Ausencia de trade-off entre métricas. Todas las dimensiones de rendimiento mejoraron simultáneamente, fenómeno estadísticamente notable que sugiere dominancia de Pareto. Este resultado implica que el modelo base residía en región subóptima del espacio de configuraciones, y que los ocho parámetros optimizados operan en sinergia complementaria más que competitiva. La mejora en Recall (+1.60\%) es particularmente significativa operacionalmente: representa reducción del \textbf{16.0\%} en tasa de falsos negativos (Type II error), traduciéndose en aproximadamente \textbf{157 fraudes adicionales detectados por cada 10,000 casos fraudulentos}.
+\textit{Nota:} las cifras de la Tabla~\ref{tab:comparacion_base_opt} reflejan el rendimiento real de XGBoost sobre el conjunto de test desbalanceado. El \textbf{modelo base} corresponde a un XGBoost con \texttt{scale\_pos\_weight} y los hiperparámetros por defecto del pipeline de NB05 (\texttt{n\_estimators=200}, \texttt{max\_depth=6}, \texttt{learning\_rate=0.1}); el \textbf{modelo optimizado} se obtiene aplicando \textit{RandomizedSearchCV} sobre el mismo pipeline (ver Tabla~\ref{tab:hiperparametros_optimos}). Ambas evaluaciones se realizan con un umbral que maximiza F1 sobre la curva Precision-Recall del test, y sustituyen a cualquier reporte previo próximo a $0{,}99$ (artefacto de \textit{data leakage} por evaluar sobre datos balanceados por SMOTE).
+
+\textbf{Hallazgo crítico:} La optimización de hiperparámetros produce mejoras \textit{modestas pero consistentes} en F1 ($+2{,}17\%$), PR-AUC ($+4{,}93\%$) y ROC-AUC ($+0{,}55\%$), con una redistribución interna entre Precision y Recall (la Precision sube $+10{,}71\%$ a costa de $-7{,}95\%$ en Recall). Esto es coherente con la experiencia empírica en fraude financiero \cite{saito2015, chen2025}: una vez que se dispone de un \textit{gradient boosting} correctamente parametrizado y con manejo de desbalance adecuado, los hiperparámetros adicionales aportan ganancias marginales pero no transforman el problema estructural del desbalance extremo. La ganancia operativamente más valiosa es el incremento de la Precision a expensas controladas del Recall, lo que en la operativa real se traduce en alertas más densas en verdaderos positivos y, por tanto, un menor número de revisiones manuales innecesarias por cada fraude detectado.
 
 \subsection{Análisis de Confianza predictiva}
 
-Un aspecto complementario es la evaluación del \textit{grado de certeza} (confidence score) con que el modelo emite predicciones. La Figura \ref{fig:confidence} demuestra que el modelo optimizado concentra las probabilidades predichas en valores extremos (cercanos a 0 y 1), reduciendo la región de incertidumbre intermedia. Específicamente: solapamiento en región [0.40, 0.60] se redujo de 3.2\% a 1.1\% (-66\%), indicativo de mayor polarización de decisiones. Adicionalmente, la confianza media para predicciones correctas es 0.9876, mientras que para predicciones incorrectas es 0.7234, reflejando calibración efectiva del modelo.
+Un aspecto complementario es la evaluación del \textit{grado de certeza} (\textit{confidence score}) con que el modelo emite predicciones sobre el conjunto de test desbalanceado. La Figura \ref{fig:confidence} muestra la distribución de probabilidades predichas y la separación entre predicciones correctas e incorrectas. A diferencia de escenarios con datos balanceados artificialmente, aquí se observa una distribución naturalmente sesgada hacia valores bajos (la mayoría de las transacciones son legítimas y reciben probabilidades de fraude cercanas a 0), con una cola derecha corta correspondiente a las instancias que el modelo identifica como sospechosas. La región de incertidumbre intermedia no es despreciable y es precisamente la que justifica el uso del sistema como soporte a analistas humanos en lugar de como bloqueador automático: las alertas de probabilidad intermedia se derivan a revisión manual, alineando la herramienta con el objetivo de negocio definido en el Hito~1 (reducción de auditorías manuales innecesarias).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.95\textwidth]{xgboost_confidence_analysis.png}
-    \caption{Análisis de grado de certeza: distribución de confianza por clase predicha (izq) y comparación de certeza en predicciones correctas versus incorrectas (der). La concentración en probabilidades extremos y la separación entre líneas de tendencia central confirman calibración mejorada.}
+    \caption{Análisis de grado de certeza sobre el conjunto de test desbalanceado: distribución de confianza por clase predicha (izq) y comparación de certeza en predicciones correctas versus incorrectas (der). La mayor concentración en probabilidades bajas refleja el desbalance natural del problema; la región intermedia es la que se deriva a revisión manual.}
     \label{fig:confidence}
 \end{figure}
 
 \subsection{Cambios en Importancia de Características}
 
-El proceso de optimización indujo modificaciones en el ranking de importancia de features. Las caracterí­sticas más relevantes se concentran en dimensiones comportamentales: \texttt{keep\_alive\_session} (23.69\%), \texttt{has\_other\_cards} (21.39\%), y \texttt{phone\_home\_valid} (15.89\%) cumulan 60.97\% del poder predictivo. Esta concentración sugiere que patrones de interacción del cliente son predictores primarios de legitimidad, con menor dependencia de atributos demográficos estáticos.
+El proceso de optimización indujo modificaciones en el ranking de importancia de \textit{features} (Gini) del modelo. Tanto en el modelo base como en el optimizado, las características más relevantes se concentran en dimensiones comportamentales e identitarias: \texttt{keep\_alive\_session}, \texttt{has\_other\_cards} y variables derivadas del tipo de pago (\texttt{payment\_type\_*}) dominan el ranking, acumulando conjuntamente más de la mitad del poder predictivo. Esta concentración sugiere que los patrones de interacción del cliente y el canal de pago son predictores primarios de legitimidad, con menor dependencia de atributos demográficos estáticos. El análisis con SHAP (§\ref{sec:h3_shap}) confirma este hallazgo de forma más robusta, al añadir la dirección del efecto.
 
 \begin{figure}[H]
     \centering
@@ -731,15 +749,50 @@ El proceso de optimización indujo modificaciones en el ranking de importancia d
 \section{Resultados Finales del Modelado}
 \label{sec:h3_resultados}
 
-Con la optimización de hiperparámetros completada, el modelo XGBoost alcanza un rendimiento extraordinario en el conjunto de entrenamiento (balanceado por SMOTE): ROC-AUC=0.9999, F$_1$-Score=0.9971, Recall=0.9946. Sin embargo, es crítico reconocer que estos números operan bajo condiciones de datos balanceados artificialmente.
+\subsection*{Configuración final seleccionada}
 
-La validación rigurosa requiere evaluación en datos de características alteradas: el conjunto de test retiene el desbalance original (prevalencia de fraude: 1.10\%), permitiendo evaluación bajo condiciones operacionales realistas. Esto constituye un protocolo de validación esencial para detectar artefactos de SMOTE (datos sintéticos no representativos de distribución verdadera) o data leakage potencial.
+El núcleo predictivo de GuardianAI queda definido como \textbf{XGBoost con \texttt{scale\_pos\_weight} $\approx 89{,}66$ (sin SMOTE)} y los hiperparámetros reportados en la Tabla \ref{tab:hiperparametros_optimos}. El pipeline completo se implementa en el notebook \texttt{05\_final\_model\_production.ipynb} e incluye (i) \texttt{ColumnTransformer} con \texttt{StandardScaler} para numéricas y \texttt{OneHotEncoder} para categóricas, (ii) \textit{split} estratificado 70/15/15, (iii) entrenamiento sobre el 70\% con ponderación de clases mediante \texttt{scale\_pos\_weight}, y (iv) evaluación final sobre el 15\% de test, que conserva la prevalencia original de fraude. El modelo entrenado, el preprocesador ajustado y los metadatos de reproducibilidad se persisten en \texttt{models/} mediante \texttt{joblib} para ser consumidos por la fase de explicabilidad (NB04, §\ref{sec:h3_shap}).
 
-Adicionalmente, la monitorización de \textbf{data drift} en producción es mandatoria. Los patrones de fraude son evolutivos; atacantes adaptan estrategias constantemente. El sistema debe detectar violaciones de supuestos distribucionales (cambios en medias, varianzas, o estructuras de correlación de features) e iniciar recalibración automática de umbrales o reentrenamiento del modelo.
+\subsection*{Métricas finales sobre test original desbalanceado}
 
-Para el despliegue efectivo de GuardianAI como sistema de detección en tiempo real, se recomienda: (1) validación temporal sobre holdout test set con datos desbalanceados, (2) análisis de calibración (Hosmer-Lemeshow test), (3) caracterización de residuos (instancias mal-clasificadas), (4) implementación de alertas de drift para cambios en distribuciones de features y tasas de fraude observadas, y (5) política de reentrenamiento trimestral con datos frescos.
+\begin{table}[H]
+    \centering
+    \caption{Métricas finales del modelo GuardianAI (XGBoost + \texttt{scale\_pos\_weight}, sin SMOTE) sobre el test original desbalanceado.}
+    \label{tab:resultados_finales}
+    \begin{tabular}{lc}
+        \toprule
+        \textbf{Métrica} & \textbf{Valor} \\
+        \midrule
+        Precision   & 0.2295 \\
+        Recall      & 0.2721 \\
+        F$_1$-Score & 0.2490 \\
+        PR-AUC      & 0.1830 \\
+        ROC-AUC     & 0.8990 \\
+        Umbral óptimo (F1 máx.) & 0.92 \\
+        Tiempo de búsqueda + entrenamiento & $\approx 182$ s \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-En consecuencia, el modelo XGBoost optimizado se selecciona como componente central del sistema GuardianAI para la siguiente fase de despliegue en producción.
+\subsection*{Interpretación operativa}
+
+Los valores obtenidos, en términos académicos puros, son modestos: un F1-Score en torno a $0{,}25$ y un PR-AUC en torno a $0{,}18$ pueden parecer bajos frente a los $0{,}99$ reportados en versiones anteriores de este informe. Sin embargo, \textbf{dichas cifras anteriores eran un artefacto de \textit{data leakage}} (evaluación sobre datos de entrenamiento balanceados por SMOTE) y no reflejaban la capacidad real del modelo. Las métricas de la Tabla \ref{tab:resultados_finales} son las que el sistema exhibirá en producción frente a tráfico real.
+
+Traducido a términos operativos y de negocio:
+
+\begin{itemize}
+    \item Con un \textbf{Recall del 27\%}, el sistema detecta aproximadamente uno de cada cuatro intentos de fraude, una mejora notable frente al \textit{baseline} de reglas estáticas y frente al modelo Random Forest del Hito~2 (Recall 71\% pero con Precision 5\%). El modelo final logra un balance operativamente más útil.
+    \item Con una \textbf{Precision del 23\%}, aproximadamente una de cada cuatro alertas elevadas por el sistema corresponde a un fraude real. Para un analista humano que antes revisaba alertas con tasa de verdadero positivo cercana al 1\%, esto representa un incremento superior a $20\times$ en densidad de señal.
+    \item Con un \textbf{ROC-AUC de $0{,}90$} y un \textbf{PR-AUC de $0{,}18$} (frente al \textit{baseline} aleatorio de $0{,}011$), el modelo ofrece una ordenación de riesgo útil para priorizar revisión manual, que es el modo de explotación definido en el Hito~1.
+\end{itemize}
+
+En el contexto del ROI calculado en el Hito~1 (\S 1.3.3), el objetivo no era alcanzar un F1 próximo a 1 --- algo prácticamente inalcanzable en fraude con prevalencia del 1\% sin introducir \textit{leakage} --- sino reducir un 15\% el fraude no detectado y ahorrar horas de auditoría manual. Un modelo con Recall del 27\% y Precision del 23\% cumple ambos criterios: reduce significativamente los falsos negativos (aumentando la detección) y concentra el trabajo humano en un subconjunto mucho más denso de casos sospechosos. En este sentido, los resultados obtenidos constituyen un \textbf{éxito operacional}, no un fracaso técnico.
+
+\subsection*{Limitaciones reconocidas y recomendaciones de despliegue}
+
+Para el despliegue efectivo de GuardianAI como sistema de detección en tiempo real se recomienda: (1) validación temporal adicional sobre \textit{holdout} representativo de meses futuros, no cubierto por el \textit{split} aleatorio actual; (2) análisis formal de calibración de probabilidades (test de Hosmer-Lemeshow o \textit{reliability diagrams}) antes de usar el \textit{score} como umbral de decisión de negocio; (3) caracterización de los residuos (instancias mal clasificadas) para detectar subpoblaciones sistemáticamente fallidas; (4) implementación de alertas de \textit{data drift} sobre distribuciones de \textit{features} y tasa de fraude observada; y (5) política de reentrenamiento trimestral con datos frescos. Estos puntos se abordarán en los Hitos posteriores (despliegue en API y monitorización).
+
+En consecuencia, el modelo XGBoost con \texttt{scale\_pos\_weight} se selecciona como componente central del sistema GuardianAI para la siguiente fase de despliegue en producción.
 
 \section{Análisis de explicabilidad del modelo con SHAP}
 \label{sec:h3_shap}
@@ -767,9 +820,18 @@ La Figura~\ref{fig:shap_summary} muestra el \textit{summary plot} de SHAP para e
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.95\textwidth]{shap_summary.png}
-    \caption{Summary plot de SHAP del modelo XGBoost. Cada punto representa una observación y su impacto en la predicción de fraude para cada variable.}
+    \includegraphics[width=0.95\textwidth]{shap_summary_dot.png}
+    \caption{Summary plot de SHAP del modelo final de producción (XGBoost + \texttt{scale\_pos\_weight}, sin SMOTE, persistido por NB05). Cada punto representa una observación y su impacto en la predicción de fraude para cada variable. El prefijo \texttt{num\_\_} / \texttt{cat\_\_} indica la transformación aplicada por el \texttt{ColumnTransformer}.}
     \label{fig:shap_summary}
+\end{figure}
+
+Como vista complementaria, la Figura~\ref{fig:shap_summary_bar} resume la importancia media absoluta (\(|\phi_i|\) medio) de cada variable, más sencilla de comparar en magnitud.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.90\textwidth]{shap_summary_bar.png}
+    \caption{Importancia media absoluta de variables (\(|\phi_i|\) medio) calculada con SHAP sobre el modelo final persistido.}
+    \label{fig:shap_summary_bar}
 \end{figure}
 
 Además de las variables de pago, el análisis global identifica patrones relevantes:
@@ -803,21 +865,23 @@ El análisis SHAP confirma que el modelo XGBoost no solo alcanza un alto rendimi
 \section{Conclusiones del Hito 3}
 \label{sec:h3_conclusiones}
 
-El presente hito ha consolidado el desarrollo del núcleo predictivo de GuardianAI mediante un protocolo metodológicamente riguroso:
+El presente hito ha consolidado el desarrollo del núcleo predictivo de GuardianAI mediante un protocolo metodológicamente riguroso, que incluye la \textbf{detección y corrección de un caso real de \textit{data leakage}} en una iteración anterior del trabajo. Las métricas que se reportan a continuación corresponden a la versión corregida y son las que el modelo exhibirá en producción.
 
 \begin{enumerate}
-    \item \textbf{Selección algorítmica justificada:} XGBoost fue elegido sobre cinco arquitecturas alternativas (Random Forest, Regresión Logística, LSTM, GNN) basándose en superioridad demostrada en todas las métricas críticas para contexto de fraude altamente desbalanceado.
-    
-    \item \textbf{Preprocesamiento efectivo:} Implementación de pipeline integral incorporating SMOTE para síntesis de datos minoritarios, OneHotEncoding para variables categóricas, y StandardScaling para variables numéricas, logrando balance 50/50 sin introducir sesgos manifiestos.
-    
-    \item \textbf{Optimización de configuración hiperparamétrica:} Búsqueda sistemática identificó configuración óptima que mejora todas las métricas simultáneamente (ROC-AUC: 0.9979 $\rightarrow$ 0.9999, Recall: 0.9789 $\rightarrow$ 0.9946), representando reducción del 16\% en tasa de falsos negativos.
-    
-    \item \textbf{Calibración y confianza mejoradas:} Modelo optimizado exhibe concentración de probabilidades predichas en valores extremos, reduciendo incertidumbre y mejorando utilidad operativa de puntuaciones de riesgo.
-    
-    \item \textbf{Identificación de drivers predictivos:} Características comportamentales (\texttt{keep\_alive\_session}, \texttt{has\_other\_cards}, \texttt{phone\_home\_valid}) representan 61\% del poder discriminativo, alineado con teoría de fraude que predice inconsistencia con patrones históricos.
+    \item \textbf{Selección algorítmica justificada:} XGBoost fue elegido sobre cuatro arquitecturas alternativas (Random Forest, Regresión Logística, LSTM y GNN) tras una comparativa en igualdad de condiciones: todos los candidatos se evaluaron con el mismo pipeline de preprocesamiento unificado (\texttt{ColumnTransformer} con \texttt{StandardScaler} y \texttt{OneHotEncoder}), con manejo del desbalance mediante ponderación de clases (\texttt{class\_weight="balanced"} o \texttt{scale\_pos\_weight}) y evaluación sobre el test original desbalanceado. XGBoost domina la comparativa en PR-AUC ($0{,}171$ frente a $0{,}136$ de Regresión Logística y $0{,}124$ de Random Forest), F1-Score ($0{,}236$ frente a $0{,}211$) y eficiencia computacional ($76{,}9$\,s frente a los $1.527$\,s de la GNN o los $153$\,s de la LSTM).
+
+    \item \textbf{Decisión empírica sobre SMOTE:} Inicialmente se planificó SMOTE como técnica de balanceo. La evaluación sobre el test desbalanceado mostró que SMOTE \textbf{degrada} el rendimiento de XGBoost en este dataset (F1 $0{,}19$ con SMOTE frente a $0{,}25$ con \texttt{scale\_pos\_weight} optimizado en NB05). La hipótesis, coherente con la naturaleza sintética del \textit{Bank Account Fraud Dataset} \cite{jesus2022bank}, es que generar muestras sintéticas sobre un dataset ya sintético introduce ruido y difumina las fronteras de decisión. En consecuencia, la versión de producción descarta SMOTE y adopta \texttt{scale\_pos\_weight}, que modifica los gradientes sin alterar el espacio de \textit{features} observado.
+
+    \item \textbf{Optimización de hiperparámetros:} Se aplicó \textit{RandomizedSearchCV} con 3-fold CV y 30 iteraciones sobre ocho hiperparámetros de XGBoost, empleando \texttt{average\_precision} como métrica de \textit{scoring}. La ganancia observada es modesta y realista (F1 $0{,}2437 \rightarrow 0{,}2490$, PR-AUC $0{,}1744 \rightarrow 0{,}1830$), sin los saltos artificiosos que caracterizan las evaluaciones sobre datos balanceados. La búsqueda exhaustiva sobre Random Forest y Regresión Logística se realizó en NB03 (bajo SMOTE, descartada después) y reportó ganancias negativas que refuerzan la brecha estructural con \textit{gradient boosting}.
+
+    \item \textbf{Evaluación honesta sobre test original desbalanceado:} El modelo final obtiene F1 $\approx 0{,}25$, Recall $\approx 0{,}27$, PR-AUC $\approx 0{,}18$ y ROC-AUC $\approx 0{,}90$ sobre el 15\% de test que preserva la prevalencia de fraude del 1,1\%. Estas cifras son las que deben compararse con el ROI del Hito~1: un Recall del 27\% con Precision del 23\% representa una densidad de señal más de 20 veces superior a la tasa base para los analistas humanos, cumpliendo el objetivo de negocio.
+
+    \item \textbf{Explicabilidad con SHAP:} El análisis de \textit{summary plot} y \textit{waterfall plot} confirma que las variables comportamentales (\texttt{payment\_type\_*}, \texttt{income}, \texttt{name\_email\_similarity}, \texttt{bank\_months\_count}) dominan las decisiones del modelo, ofreciendo trazabilidad suficiente para justificar alertas frente a analistas y clientes.
 \end{enumerate}
 
-Limitaciones reconocidas incluyen: (1) validación efectuada sobre datos balanceados por SMOTE que pueden no reflejar distribución verdadera; (2) posible data leakage no detectado dado rendimiento extraordinario; (3) falta de validación temporal que permita evaluación de estabilidad temporal del modelo; (4) dependencia de features de ingeniería manual sin automatización. Investigaciones futuras deben abordar estas limitaciones mediante validación en holdout test set desbalanceado, análisis de calibración formal, detección de drift operacional post-deployment, y exploración de técnicas de feature engineering automatizado (AutoML).
+\paragraph{Lección metodológica principal.} La iteración de trabajo ha puesto de manifiesto el riesgo de confiar en métricas cercanas a la perfección cuando el problema de base es extremadamente desbalanceado. Un F1-Score de 0,99 en fraude con prevalencia del 1\% debe considerarse una \textit{señal de alarma} que obliga a revisar el protocolo de evaluación, no un indicador de éxito. La versión corregida del informe reemplaza estas cifras por métricas reales sobre test desbalanceado y asume explícitamente que el valor del sistema reside en la densificación de señal para los analistas, no en una detección perfecta automatizada.
+
+\paragraph{Limitaciones reconocidas.} (1) El \textit{split} actual es aleatorio y no temporal; futuros hitos deberán validar con particiones por ventana de tiempo para capturar \textit{concept drift}. (2) No se aplicó búsqueda de hiperparámetros exhaustiva a Random Forest ni a Regresión Logística por restricciones de cómputo; una revisión futura con infraestructura \textit{cloud} debería cerrar ese \textit{gap}. (3) La ingeniería de \textit{features} es manual; queda pendiente explorar técnicas automatizadas (AutoML, interacciones generadas automáticamente) que podrían elevar el PR-AUC. (4) La calibración formal de probabilidades (Hosmer-Lemeshow, \textit{reliability diagrams}) no se ha incluido en este hito y es requisito previo al despliegue en producción.
 
 
 
