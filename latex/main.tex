@@ -68,7 +68,7 @@ En el ecosistema de la banca digital contemporánea, la seguridad en las transac
 
 Históricamente, la detección de anomalías en entidades bancarias se ha basado en sistemas de reglas estáticas \cite{baesens2015fraud} (por ejemplo, bloquear transacciones superiores a cierta cantidad en el extranjero). Estos enfoques presentan limitaciones evidentes: son inflexibles, no capturan patrones de comportamiento complejos y, lo más crítico, generan un volumen inaceptable de \textit{falsos positivos}. Bloquear la tarjeta de un cliente legítimo genera un alto nivel de frustración y fricción, siendo una de las principales causas de abandono en entidades digitales como \textbf{NovaBank}.
 
-El problema que se aborda en este proyecto consiste en utilizar datos históricos de transacciones para generar un sistema predictivo que evalúe el riesgo en tiempo real. Para ello, se utilizará un conjunto de datos (basado en el \textit{Credit Card Fraud Detection} de Kaggle) compuesto por variables numéricas resultantes de una transformación PCA, así como el importe (\textit{Amount}) y el tiempo (\textit{Time}) de la transacción. El mayor reto analítico radica en el \textbf{extremo desbalanceo de clases}: los fraudes representan únicamente el $0,17\%$ de las operaciones. 
+El problema que se aborda en este proyecto consiste en utilizar datos históricos de aperturas de cuenta para generar un sistema predictivo que evalúe el riesgo de fraude en tiempo real. Para ello, se utilizará el \textit{Bank Account Fraud Dataset Suite} \cite{jesus2022bank}, publicado en NeurIPS 2022, compuesto por 30 variables predictoras numéricas y categóricas (tipo de pago, situación laboral, velocidades de actividad, antigüedad del cliente, etc.), una variable temporal (\texttt{month}) y la variable objetivo \texttt{fraud\_bool}. El mayor reto analítico radica en el \textbf{extremo desbalanceo de clases}: los fraudes representan únicamente un $\approx 1{,}1\%$ de las solicitudes (ratio aproximado 1:90). La descripción detallada de este dataset, su justificación y su análisis exploratorio se abordan en el Capítulo~\ref{ch:hito2}.
 
 \section{Objetivos generales y específicos}
 El problema principal puede formularse de la siguiente manera: \textit{¿Cómo diseñar un sistema de inteligencia artificial capaz de evaluar en tiempo real el riesgo de fraude en transacciones bancarias, equilibrando la detección precisa de transacciones ilícitas o fraudulentas y la minimización de bloqueos a clientes legítimos, manteniendo un alto grado de explicabilidad en sus decisiones?}
@@ -251,7 +251,7 @@ Durante la fase de inspección inicial se detectó que la variable \texttt{credi
 Antes de comenzar con el análisis, es imprescindible identificar las limitaciones del conjunto de datos que condicionarán tanto el análisis como las decisiones de modelado:
 
 \begin{enumerate}
-    \item \textbf{Desbalanceo extremo de clases:} La variable objetivo presenta un desbalanceo severo: aproximadamente el 0,9\% de las solicitudes son fraudulentas. Esto implica que un modelo trivial que predijera siempre ``no fraude'' obtendría una exactitud del 99,1\%, pero sería completamente inútil. Las métricas de evaluación deben seleccionarse cuidadosamente (véase \S\ref{sec:h2_metricas}).
+    \item \textbf{Desbalanceo extremo de clases:} La variable objetivo presenta un desbalanceo severo: aproximadamente el 1,1\% de las solicitudes son fraudulentas (11.029 casos positivos de un total de 1.000.000). Esto implica que un modelo trivial que predijera siempre ``no fraude'' obtendría una exactitud del 98,9\%, pero sería completamente inútil. Las métricas de evaluación deben seleccionarse cuidadosamente (véase \S\ref{sec:h2_metricas}).
 
     \item \textbf{Naturaleza sintética de los datos:} Aunque los datos están generados siguiendo patrones reales, no dejan de ser sintéticos. Los patrones de fraude pueden no capturar toda la complejidad y variabilidad del mundo real (estacionalidad, adaptación de los estafadores, contexto socioeconómico).
 
@@ -272,16 +272,16 @@ Antes de comenzar con el análisis, es imprescindible identificar las limitacion
 \section{Análisis de los datos}
 \label{sec:h2_analisis}
 
-El análisis exploratorio de los datos se ha realizado de forma exhaustiva en el cuaderno de Jupyter (\texttt{GUARDIANAI\_Hito2.ipynb}) asociado a este hito. En esta sección se resumen los hallazgos más relevantes, referenciando las visualizaciones generadas.
+El análisis exploratorio de los datos se ha realizado de forma exhaustiva en el cuaderno de Jupyter \texttt{src/01\_eda\_and\_baseline.ipynb} asociado a este hito. En esta sección se resumen los hallazgos más relevantes, referenciando las visualizaciones generadas.
 
 \subsection{Distribución de la variable objetivo}
 
-El punto de partida del análisis es comprender la distribución de la variable que se pretende predecir. Como muestra la Figura~\ref{fig:target_dist}, el dataset presenta un \textbf{desbalanceo extremo}: del millón de solicitudes, solo un $\sim$0,9\% corresponden a fraude. Este ratio de desbalanceo (aproximadamente 1:100) condiciona todas las decisiones posteriores, desde la selección de métricas hasta las técnicas de muestreo.
+El punto de partida del análisis es comprender la distribución de la variable que se pretende predecir. Como muestra la Figura~\ref{fig:target_dist}, el dataset presenta un \textbf{desbalanceo extremo}: del millón de solicitudes, solo un $\sim$1,1\% corresponden a fraude (11.029 casos positivos). Este ratio de desbalanceo (aproximadamente 1:90) condiciona todas las decisiones posteriores, desde la selección de métricas hasta las técnicas de muestreo.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{target_distribution.png}
-    \caption{Distribución de la variable objetivo \texttt{fraud\_bool}. Se observa un desbalanceo extremo: menos del 1\% de las solicitudes son fraudulentas.}
+    \caption{Distribución de la variable objetivo \texttt{fraud\_bool}. Se observa un desbalanceo extremo: aproximadamente el 1,1\% de las solicitudes son fraudulentas.}
     \label{fig:target_dist}
 \end{figure}
 
@@ -382,7 +382,7 @@ Una vez analizados los datos, es necesario definir cómo se evaluará el rendimi
 
 \subsection{¿Por qué no utilizar la exactitud (Accuracy)?}
 
-En un dataset donde el 99,1\% de las solicitudes son legítimas, un modelo que siempre prediga ``no fraude'' obtendría una exactitud del 99,1\%. Sin embargo, este modelo sería completamente inútil desde el punto de vista del negocio, ya que no detectaría ningún fraude. Por tanto, la \textbf{exactitud no es una métrica adecuada} para este problema.
+En un dataset donde aproximadamente el 98,9\% de las solicitudes son legítimas, un modelo que siempre prediga ``no fraude'' obtendría una exactitud del 98,9\%. Sin embargo, este modelo sería completamente inútil desde el punto de vista del negocio, ya que no detectaría ningún fraude. Por tanto, la \textbf{exactitud no es una métrica adecuada} para este problema.
 
 \subsection{Métricas seleccionadas}
 
@@ -428,21 +428,21 @@ Los resultados obtenidos con este modelo baseline son los siguientes:
 \toprule
 \textbf{Métrica} & \textbf{Valor} \\
 \midrule
-Precision   & 0,05  \\
-Recall      & 0,71  \\
-$F_1$-Score & 0,09  \\
-PR-AUC      & 0,11  \\
-ROC-AUC     & (ver curva) \\
-Accuracy    & 85,43\% \\
+Precision   & 0{,}05  \\
+Recall      & 0{,}72  \\
+$F_1$-Score & 0{,}10  \\
+PR-AUC      & 0{,}13  \\
+ROC-AUC     & 0{,}88  \\
+Accuracy    & 86\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Estos resultados merecen una interpretación cuidadosa:
 \begin{itemize}
-    \item El \textbf{Recall de 0,71} indica que el modelo detecta el 71\% de los fraudes reales. Esto es alentador como punto de partida, ya que demuestra que las variables del dataset contienen señal discriminativa.
-    \item La \textbf{Precision de 0,05} es muy baja, indicando que por cada fraude detectado correctamente, el modelo genera aproximadamente 19 falsas alarmas. Esto es inasumible en producción.
-    \item El \textbf{PR-AUC de 0,11}, aunque bajo, es significativamente superior a la tasa base de fraude ($\sim$0,009), lo que confirma que el modelo aporta valor frente a una predicción aleatoria.
+    \item El \textbf{Recall de 0,72} indica que el modelo detecta el 72\% de los fraudes reales. Esto es alentador como punto de partida, ya que demuestra que las variables del dataset contienen señal discriminativa.
+    \item La \textbf{Precision de 0,05} es muy baja, indicando que por cada fraude detectado correctamente, el modelo genera aproximadamente 18 falsas alarmas. Esto es inasumible en producción.
+    \item El \textbf{PR-AUC de 0,13}, aunque bajo, es significativamente superior a la tasa base de fraude ($\sim$0,011), lo que confirma que el modelo aporta valor frente a una predicción aleatoria.
 \end{itemize}
 
 Estos resultados son \textbf{preliminares} y se optimizarán en el Hito~3 mediante técnicas de ingeniería de características, selección de modelos más sofisticados (XGBoost, LightGBM), ajuste de hiperparámetros y optimización del umbral de decisión. El objetivo es reducir significativamente los falsos positivos manteniendo un recall alto, encontrando el equilibrio óptimo que minimice el coste total para NovaBank.
@@ -456,13 +456,13 @@ El análisis exploratorio realizado en este hito permite extraer las siguientes 
 \begin{enumerate}
     \item \textbf{El dataset contiene señal discriminativa.} Aunque ninguna variable individualmente presenta una correlación fuerte con el fraude, el modelo baseline demuestra que la combinación de variables permite identificar patrones de comportamiento fraudulento.
 
-    \item \textbf{El desbalanceo es el principal desafío técnico.} Con menos del 1\% de fraudes, las métricas y técnicas estándar no son aplicables. Es necesario utilizar métricas como PR-AUC, técnicas de sobremuestreo y modelos capaces de manejar clases desbalanceadas.
+    \item \textbf{El desbalanceo es el principal desafío técnico.} Con una prevalencia de fraude del 1,1\%, las métricas y técnicas estándar no son aplicables. Es necesario utilizar métricas como PR-AUC, técnicas de sobremuestreo o ponderación de clases y modelos capaces de manejar clases desbalanceadas.
 
     \item \textbf{Las variables de velocidad son las más informativas.} Las variables que miden la frecuencia de actividad en ventanas temporales cortas (\texttt{velocity\_6h}, \texttt{velocity\_24h}) son las que mejor discriminan entre fraude y no fraude, tanto en el análisis de correlación como en la importancia del modelo.
 
     \item \textbf{Los sesgos identificados deben monitorizarse.} Las diferencias en tasas de fraude según tipo de pago, origen de la solicitud y estado laboral deben ser tenidas en cuenta para evitar que el modelo discrimine injustamente a ciertos grupos.
 
-    \item \textbf{El modelo baseline establece un punto de partida cuantificable.} Con un Recall del 71\% pero una Precision del 5\%, queda claro que el siguiente hito debe enfocarse en la reducción de falsos positivos, la ingeniería de características avanzada y la exploración de modelos más potentes.
+    \item \textbf{El modelo baseline establece un punto de partida cuantificable.} Con un Recall del 72\% pero una Precision del 5\%, queda claro que el siguiente hito debe enfocarse en la reducción de falsos positivos, la ingeniería de características avanzada y la exploración de modelos más potentes.
 \end{enumerate}
 
 Con estas conclusiones, el análisis de datos queda completado y se dispone de la información necesaria para abordar la \textbf{fase de modelado} en el Hito~3, donde se implementarán los modelos de detección de fraude optimizados y se evaluarán con las métricas definidas en este capítulo.
@@ -541,20 +541,20 @@ Con esas métricas y ese protocolo establecidos, se ejecutan los modelos y se ob
             \toprule
             \textbf{Modelo} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1-Score} & \textbf{PR-AUC} & \textbf{ROC-AUC} & \textbf{Umbral} & \textbf{Tiempo (s)} \\
             \midrule
-            XGBoost         & 0.2280 & 0.2443 & 0.2359 & 0.1711 & 0.8944 & 0.9100 & 76.9000 \\
-            Reg. Logística  & 0.1817 & 0.2516 & 0.2110 & 0.1363 & 0.8755 & 0.9200 & 3.7000 \\
-            GNN             & 0.1659 & 0.2715 & 0.2060 & 0.1333 & 0.8710 & 0.8600 & 1527.5000 \\
-            Random Forest   & 0.1560 & 0.2620 & 0.1956 & 0.1243 & 0.8768 & 0.7700 & 32.8000 \\
-            LSTM            & 0.0789 & 0.2366 & 0.1183 & 0.0593 & 0.7998 & 0.8400 & 153.5000 \\
+            XGBoost         & 0.1996 & 0.2888 & 0.2360 & 0.1709 & 0.8934 & 0.89 & 21.15 \\
+            Reg. Logística  & 0.1817 & 0.2516 & 0.2110 & 0.1363 & 0.8755 & 0.92 & 1.99 \\
+            GNN             & 0.1648 & 0.2529 & 0.1996 & 0.1270 & 0.8678 & 0.87 & 1307.39 \\
+            Random Forest   & 0.1560 & 0.2620 & 0.1956 & 0.1243 & 0.8768 & 0.77 & 32.17 \\
+            LSTM            & 0.0775 & 0.2484 & 0.1181 & 0.0587 & 0.7969 & 0.82 & 171.28 \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
-Tal como se observa, los mejores números en todos los parámetros son para \textbf{XGBoost}, demostrando no solo mayor capacidad discriminativa (PR-AUC $=0{,}171$ frente a $0{,}124$ de Random Forest y $0{,}136$ de Regresión Logística), sino también una eficiencia computacional razonable ($76{,}9$ s de entrenamiento frente a los $1527{,}5$ s de la GNN o los $153{,}5$ s de la LSTM). Conviene destacar que las métricas absolutas (F1 $\approx 0{,}24$, PR-AUC $\approx 0{,}17$) son moderadas en términos académicos; esto es coherente con lo esperado en fraude financiero real, donde la extrema prevalencia del 1,1\% impone un techo estructural a la precisión. Estos valores sustituyen a cualquier resultado previo próximo a 0,99, los cuales respondían a un artefacto de \textit{data leakage} (evaluación sobre datos balanceados por SMOTE) que ha sido corregido en esta versión del informe.
+Tal como se observa, \textbf{XGBoost} lidera de forma consistente la comparativa, demostrando no solo mayor capacidad discriminativa (PR-AUC $=0{,}171$ frente a $0{,}124$ de Random Forest y $0{,}136$ de Regresión Logística), sino también una eficiencia computacional notable ($\approx 21$ s de entrenamiento frente a los $\approx 1.307$ s de la GNN o los $\approx 171$ s de la LSTM). Conviene destacar que las métricas absolutas (F1 $\approx 0{,}24$, PR-AUC $\approx 0{,}17$) son moderadas en términos académicos; esto es coherente con lo esperado en fraude financiero real, donde la extrema prevalencia del 1,1\% impone un techo estructural a la precisión. Estos valores sustituyen a cualquier resultado previo próximo a 0,99, los cuales respondían a un artefacto de \textit{data leakage} (evaluación sobre datos balanceados por SMOTE) que ha sido corregido en esta versión del informe.
 
 \subsection{Análisis de Métricas Globales}
-La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:metricas}) revela que los modelos basados en \textit{gradient boosting} (XGBoost) superan sistemáticamente a las arquitecturas de \textit{deep learning} en este conjunto de datos específico. XGBoost lidera en todas las categorías, destacando un F1-Score de 0.236 y un ROC-AUC de 0.894.
+La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:metricas}) revela que los modelos basados en \textit{gradient boosting} (XGBoost) superan sistemáticamente a las arquitecturas de \textit{deep learning} en este conjunto de datos específico. XGBoost lidera en todas las categorías, destacando un F1-Score de 0{,}236 y un ROC-AUC de 0{,}893.
 
 \begin{figure}[h]
     \centering
@@ -563,19 +563,19 @@ La evaluación comparativa de las métricas de clasificación (Figura \ref{fig:m
     \label{fig:metricas}
 \end{figure}
 
-Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0.799), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost supera a la Regresión Logística (0.171 vs 0.136), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
+Es fundamental notar que, aunque el ROC-AUC es alto para todos los modelos ($>$0{,}79), esta métrica puede ser excesivamente optimista en fraudes financieros \cite{saito2015, chen2025}. Por ello, el análisis del PR-AUC (Área bajo la curva Precisión-Recall) es más informativo; aquí, XGBoost supera a la Regresión Logística (0{,}171 vs 0{,}136), confirmando su robustez ante el ruido y el desbalance \cite{chen2016}.
 
 \subsection{Curvas de Rendimiento y Capacidad Discriminatoria}
-La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0.011).
+La Figura \ref{fig:curvas} permite visualizar la separación de clases en diferentes umbrales. La curva Precisión-Recall demuestra que todos los modelos se sitúan muy por encima del \textit{baseline} aleatorio (0{,}011).
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\textwidth]{curvas_roc_pr.png}
-    \caption{Curvas ROC (izquierda) y Precisión-Recall (derecha). El modelo LSTM muestra una capacidad de generalización intermedia (AUC 0.828).}
+    \caption{Curvas ROC (izquierda) y Precisión-Recall (derecha). La LSTM muestra la capacidad discriminativa más baja del conjunto (ROC-AUC $\approx 0{,}80$), frente a XGBoost, Random Forest, Regresión Logística y GNN, que se agrupan en la banda ROC-AUC $\in [0{,}87,\,0{,}89]$.}
     \label{fig:curvas}
 \end{figure}
 
-El rendimiento inferior de las GNN (AUC 0.720) sugiere que, para este \textit{dataset} tabular, las señales relacionales podrían estar diluidas o requerir una ingeniería de grafos más profunda para competir con los modelos de ensamble tradicionales \cite{oladele2023, tian2024}.
+El rendimiento relativamente alto de la GNN en ROC-AUC ($\approx 0{,}87$) no se traduce, sin embargo, en una ventaja efectiva en PR-AUC ($0{,}127$), donde queda por debajo de la Regresión Logística ($0{,}136$) y lejos de XGBoost ($0{,}171$). Esto sugiere que, para este \textit{dataset} tabular, las señales relacionales podrían estar diluidas o requerir una ingeniería de grafos más profunda para competir con los modelos de ensamble tradicionales \cite{oladele2023, tian2024}, especialmente en el régimen de bajo \textit{recall} que domina la curva Precision-Recall bajo desbalance extremo.
 
 \subsection{Evaluación de Errores: Matrices de Confusión}
 El análisis de las matrices normalizadas (Figura \ref{fig:matrices}) es crítico para entender el coste operativo del fraude. En banca, un falso negativo (fraude no detectado) conlleva pérdidas directas, mientras que un falso positivo genera fricción con el cliente y costes de investigación \cite{kpmg2025, martini2025}.
@@ -781,7 +781,7 @@ Los valores obtenidos, en términos académicos puros, son modestos: un F1-Score
 Traducido a términos operativos y de negocio:
 
 \begin{itemize}
-    \item Con un \textbf{Recall del 27\%}, el sistema detecta aproximadamente uno de cada cuatro intentos de fraude, una mejora notable frente al \textit{baseline} de reglas estáticas y frente al modelo Random Forest del Hito~2 (Recall 71\% pero con Precision 5\%). El modelo final logra un balance operativamente más útil.
+    \item Con un \textbf{Recall del 27\%}, el sistema detecta aproximadamente uno de cada cuatro intentos de fraude, una mejora notable frente al \textit{baseline} de reglas estáticas y frente al modelo Random Forest del Hito~2 (Recall 72\% pero con Precision 5\%). El modelo final logra un balance operativamente más útil.
     \item Con una \textbf{Precision del 23\%}, aproximadamente una de cada cuatro alertas elevadas por el sistema corresponde a un fraude real. Para un analista humano que antes revisaba alertas con tasa de verdadero positivo cercana al 1\%, esto representa un incremento superior a $20\times$ en densidad de señal.
     \item Con un \textbf{ROC-AUC de $0{,}90$} y un \textbf{PR-AUC de $0{,}18$} (frente al \textit{baseline} aleatorio de $0{,}011$), el modelo ofrece una ordenación de riesgo útil para priorizar revisión manual, que es el modo de explotación definido en el Hito~1.
 \end{itemize}
@@ -868,7 +868,7 @@ El análisis SHAP confirma que el modelo XGBoost no solo alcanza un alto rendimi
 El presente hito ha consolidado el desarrollo del núcleo predictivo de GuardianAI mediante un protocolo metodológicamente riguroso, que incluye la \textbf{detección y corrección de un caso real de \textit{data leakage}} en una iteración anterior del trabajo. Las métricas que se reportan a continuación corresponden a la versión corregida y son las que el modelo exhibirá en producción.
 
 \begin{enumerate}
-    \item \textbf{Selección algorítmica justificada:} XGBoost fue elegido sobre cuatro arquitecturas alternativas (Random Forest, Regresión Logística, LSTM y GNN) tras una comparativa en igualdad de condiciones: todos los candidatos se evaluaron con el mismo pipeline de preprocesamiento unificado (\texttt{ColumnTransformer} con \texttt{StandardScaler} y \texttt{OneHotEncoder}), con manejo del desbalance mediante ponderación de clases (\texttt{class\_weight="balanced"} o \texttt{scale\_pos\_weight}) y evaluación sobre el test original desbalanceado. XGBoost domina la comparativa en PR-AUC ($0{,}171$ frente a $0{,}136$ de Regresión Logística y $0{,}124$ de Random Forest), F1-Score ($0{,}236$ frente a $0{,}211$) y eficiencia computacional ($76{,}9$\,s frente a los $1.527$\,s de la GNN o los $153$\,s de la LSTM).
+    \item \textbf{Selección algorítmica justificada:} XGBoost fue elegido sobre cuatro arquitecturas alternativas (Random Forest, Regresión Logística, LSTM y GNN) tras una comparativa en igualdad de condiciones: todos los candidatos se evaluaron con el mismo pipeline de preprocesamiento unificado (\texttt{ColumnTransformer} con \texttt{StandardScaler} y \texttt{OneHotEncoder}), con manejo del desbalance mediante ponderación de clases (\texttt{class\_weight="balanced"} o \texttt{scale\_pos\_weight}) y evaluación sobre el test original desbalanceado. XGBoost domina la comparativa en PR-AUC ($0{,}171$ frente a $0{,}136$ de Regresión Logística y $0{,}124$ de Random Forest), F1-Score ($0{,}236$ frente a $0{,}211$) y eficiencia computacional ($\approx 21$\,s frente a los $\approx 1.307$\,s de la GNN o los $\approx 171$\,s de la LSTM).
 
     \item \textbf{Decisión empírica sobre SMOTE:} Inicialmente se planificó SMOTE como técnica de balanceo. La evaluación sobre el test desbalanceado mostró que SMOTE \textbf{degrada} el rendimiento de XGBoost en este dataset (F1 $0{,}19$ con SMOTE frente a $0{,}25$ con \texttt{scale\_pos\_weight} optimizado en NB05). La hipótesis, coherente con la naturaleza sintética del \textit{Bank Account Fraud Dataset} \cite{jesus2022bank}, es que generar muestras sintéticas sobre un dataset ya sintético introduce ruido y difumina las fronteras de decisión. En consecuencia, la versión de producción descarta SMOTE y adopta \texttt{scale\_pos\_weight}, que modifica los gradientes sin alterar el espacio de \textit{features} observado.
 

@@ -170,12 +170,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# md. files
-.clinerules
-.roomodes
-.professor_feedback.md
-.clinerules.md
-
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
@@ -259,7 +253,4 @@ Base.csv
 models/
 checkpoints/
 
-### Configuraciones de IDE / herramientas ###
-.roo/
-mcp.json
-.claude/
+.vscode/
