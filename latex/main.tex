@@ -257,7 +257,7 @@ Antes de comenzar con el análisis, es imprescindible identificar las limitacion
 
     \item \textbf{Valores centinela (-1):} Varias variables (\texttt{prev\_address\_months\_count}, \texttt{current\_address\_months\_count}, \texttt{bank\_months\_count}, \texttt{session\_length\_in\_minutes}, \texttt{device\_distinct\_emails\_8w}) utilizan el valor $-1$ para indicar información no disponible. Estos valores no son nulos en sentido estricto, sino marcadores que deben tratarse explícitamente durante el preprocesamiento.
 
-    \item \textbf{Correlaciones moderadas con la variable objetivo:} Las correlaciones lineales individuales de cada variable con \texttt{fraud\_bool} son relativamente bajas (ninguna supera $|r| = 0,15$), lo que sugiere que la detección de fraude requiere capturar interacciones entre múltiples variables, no señales aisladas.
+    \item \textbf{Correlaciones moderadas con la variable objetivo:} Las correlaciones lineales individuales de cada variable con \texttt{fraud\_bool} son muy bajas (ninguna supera $|r| \approx 0{,}07$, siendo \texttt{proposed\_credit\_limit}, \texttt{customer\_age} y \texttt{keep\_alive\_session} las tres más fuertes), lo que sugiere que la detección de fraude requiere capturar interacciones entre múltiples variables, no señales aisladas.
 
     \item \textbf{Categorías infrarrepresentadas:} Algunas categorías en variables categóricas presentan muy pocas muestras, lo que puede generar inestabilidad en las estimaciones y sobreajuste.
 
@@ -299,8 +299,8 @@ Se ha analizado la distribución de cada variable del dataset, diferenciando ent
 
 En cuanto a las correlaciones entre variables numéricas, se ha calculado la matriz de correlación de Pearson y la asociación entre variables categóricas mediante el coeficiente V de Cramér. Los resultados muestran que:
 \begin{itemize}
-    \item Las correlaciones más altas se dan entre variables de velocidad (\texttt{velocity\_6h} y \texttt{velocity\_24h}: $r \approx 0{,}53$), lo que es esperable dado que miden fenómenos similares en ventanas temporales solapadas.
-    \item No existe ninguna variable individualmente muy correlacionada con \texttt{fraud\_bool} (las correlaciones más altas apenas alcanzan $|r| \approx 0{,}10$--$0{,}15$), confirmando que la detección de fraude es un problema intrínsecamente multivariante.
+    \item Las correlaciones más altas entre predictores se dan entre las variables de velocidad y el tiempo: \texttt{velocity\_4w} y \texttt{month} ($r \approx -0{,}85$), \texttt{velocity\_24h} y \texttt{month} ($r \approx -0{,}55$), y entre \texttt{velocity\_24h} y \texttt{velocity\_4w} ($r \approx 0{,}54$). Es esperable, dado que miden fenómenos de actividad en ventanas temporales solapadas.
+    \item No existe ninguna variable individualmente muy correlacionada con \texttt{fraud\_bool}: las correlaciones más altas (\texttt{proposed\_credit\_limit}, \texttt{customer\_age}, \texttt{keep\_alive\_session}) apenas alcanzan $|r| \approx 0{,}05$--$0{,}07$, confirmando que la detección de fraude es un problema intrínsecamente multivariante.
 \end{itemize}
 
 \subsection{Análisis por clase: fraude vs. no fraude}
@@ -325,9 +325,10 @@ Para evaluar la capacidad discriminativa de las variables, se han generado histo
 Los histogramas de la Figura~\ref{fig:histograms_class} y los boxplots de la Figura~\ref{fig:boxplots_class} revelan patrones relevantes:
 
 \begin{itemize}
-    \item Las variables de velocidad (\texttt{velocity\_6h}, \texttt{velocity\_24h}, \texttt{velocity\_4w}) muestran distribuciones claramente diferentes entre clases, con valores más altos y más dispersos en las solicitudes fraudulentas. Esto tiene sentido desde el punto de vista del dominio: los estafadores tienden a realizar múltiples intentos en ventanas cortas de tiempo.
+    \item Variables económicas (\texttt{proposed\_credit\_limit}, \texttt{income}) y demográficas (\texttt{customer\_age}): las solicitudes fraudulentas se concentran en franjas específicas, con valores medios superiores de \texttt{proposed\_credit\_limit} y una distribución de \texttt{customer\_age} desplazada respecto a las legítimas.
     \item La variable \texttt{name\_email\_similarity} presenta diferencias sutiles pero consistentes: los fraudes tienden a mostrar valores de similitud ligeramente más bajos, sugiriendo el uso de correos electrónicos no relacionados con el nombre real.
-    \item Las variables de antigüedad (\texttt{bank\_months\_count}, \texttt{prev\_address\_months\_count}) muestran que las solicitudes fraudulentas proceden con mayor frecuencia de clientes sin historial previo con el banco.
+    \item Variables de identidad e interacción (\texttt{has\_other\_cards}, \texttt{phone\_home\_valid}, \texttt{keep\_alive\_session}, \texttt{device\_distinct\_emails\_8w}): se aprecian diferencias de proporción marcadas entre clases, coherentes con perfiles de dispositivo reutilizados para ataques.
+    \item Las variables de antigüedad de dirección (\texttt{current\_address\_months\_count}) muestran que las solicitudes fraudulentas proceden con mayor frecuencia de usuarios con historial corto en su domicilio actual.
 \end{itemize}
 
 \subsection{Detección de valores atípicos}
@@ -405,7 +406,7 @@ La Figura~\ref{fig:feat_importance} muestra las 20 variables más importantes se
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{feature_importance.png}
-    \caption{Top 20 características más importantes según la importancia Gini del RandomForest. Se observa que las variables de velocidad e ingresos dominan el modelo.}
+    \caption{Top 20 características más importantes según la importancia Gini del RandomForest. Las 10 más informativas son \texttt{device\_os\_windows} ($0{,}117$), \texttt{current\_address\_months\_count} ($0{,}096$), \texttt{prev\_address\_months\_count} ($0{,}072$), \texttt{income} ($0{,}064$), \texttt{proposed\_credit\_limit} ($0{,}061$), \texttt{keep\_alive\_session} ($0{,}060$), \texttt{name\_email\_similarity} ($0{,}051$), \texttt{has\_other\_cards} ($0{,}045$), \texttt{phone\_home\_valid} ($0{,}041$) y \texttt{housing\_status\_BE} ($0{,}040$).}
     \label{fig:feat_importance}
 \end{figure}
 
@@ -458,7 +459,7 @@ El análisis exploratorio realizado en este hito permite extraer las siguientes 
 
     \item \textbf{El desbalanceo es el principal desafío técnico.} Con una prevalencia de fraude del 1,1\%, las métricas y técnicas estándar no son aplicables. Es necesario utilizar métricas como PR-AUC, técnicas de sobremuestreo o ponderación de clases y modelos capaces de manejar clases desbalanceadas.
 
-    \item \textbf{Las variables de velocidad son las más informativas.} Las variables que miden la frecuencia de actividad en ventanas temporales cortas (\texttt{velocity\_6h}, \texttt{velocity\_24h}) son las que mejor discriminan entre fraude y no fraude, tanto en el análisis de correlación como en la importancia del modelo.
+    \item \textbf{El dispositivo, la antigüedad de la dirección y el perfil económico son las señales más informativas del modelo baseline.} Las tres características más discriminantes según la importancia Gini del Random Forest son \texttt{device\_os\_windows}, \texttt{current\_address\_months\_count} y \texttt{prev\_address\_months\_count}, seguidas de \texttt{income} y \texttt{proposed\_credit\_limit}. Las variables de velocidad, si bien relevantes, quedan fuera del top 10 del baseline y ganarán peso en los modelos más potentes del Hito~3.
 
     \item \textbf{Los sesgos identificados deben monitorizarse.} Las diferencias en tasas de fraude según tipo de pago, origen de la solicitud y estado laboral deben ser tenidas en cuenta para evitar que el modelo discrimine injustamente a ciertos grupos.
 
@@ -583,11 +584,11 @@ El análisis de las matrices normalizadas (Figura \ref{fig:matrices}) es crític
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\textwidth]{matrices_confusion.png}
-    \caption{Matrices de confusión normalizadas. XGBoost captura el 24.43\% de los fraudes con solo un 1.1\% de falsas alarmas.}
+    \caption{Matrices de confusión normalizadas. XGBoost captura el 28{,}88\% de los fraudes con una tasa de falsas alarmas muy contenida, siendo el modelo con mayor \textit{Recall} efectivo del conjunto.}
     \label{fig:matrices}
 \end{figure}
 
-Se observa que LSTM presenta el menor recall (23.66\%), situándose en la cola del conjunto, mientras que la GNN registra un recall competitivo (27.15\%), aunque con menor precisión (16.59\%), lo que indica una mayor tasa de falsos positivos y, en consecuencia, un PR-AUC más bajo que el de XGBoost \cite{martini2025}.
+Se observa que LSTM presenta el menor recall ($24{,}84\%$) y la menor \textit{precision} ($7{,}75\%$), situándose en la cola del conjunto, mientras que la GNN registra un recall competitivo ($25{,}29\%$), aunque con menor \textit{precision} ($16{,}48\%$) que XGBoost ($19{,}96\%$), lo que indica una mayor tasa de falsos positivos y, en consecuencia, un PR-AUC más bajo que el de XGBoost \cite{martini2025}.
 
 \subsection{Perfil Operativo y Eficiencia del Sistema}
 El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimensional de cada algoritmo. XGBoost y Random Forest presentan las áreas de cobertura más equilibradas.
@@ -599,7 +600,7 @@ El gráfico de radar (Figura \ref{fig:radar}) sintetiza el perfil multidimension
     \label{fig:radar}
 \end{figure}
 
-Finalmente, la eficiencia computacional debe ponderarse frente a la calidad predictiva (Figura \ref{fig:tiempo}). XGBoost se posiciona como el modelo más eficiente en términos de Pareto: logra el F1-Score más alto con un tiempo de entrenamiento de aproximadamente 77 s (frente a los 153 s de LSTM o los 1.528 s de la GNN).
+Finalmente, la eficiencia computacional debe ponderarse frente a la calidad predictiva (Figura \ref{fig:tiempo}). XGBoost se posiciona como el modelo más eficiente en términos de Pareto: logra el F1-Score más alto con un tiempo de entrenamiento de aproximadamente $21$\,s (frente a los $171$\,s de la LSTM o los $1.307$\,s de la GNN).
 
 \begin{figure}[h]
     \centering
@@ -608,7 +609,7 @@ Finalmente, la eficiencia computacional debe ponderarse frente a la calidad pred
     \label{fig:tiempo}
 \end{figure}
 
-Arquitecturas complejas como GNN o LSTM requieren entre 150 y 1.500 segundos para ser entrenadas, lo cual representa entre $\approx 2\times$ y $\approx 20\times$ el tiempo de XGBoost sin ofrecer una mejora en la detección. Esto justifica la preferencia industrial por modelos de \textit{gradient boosting} para datos tabulares masivos \cite{chen2016, das2023}.
+Arquitecturas complejas como GNN o LSTM requieren entre $171$\,s y $1.307$\,s para ser entrenadas, lo cual representa entre $\approx 8\times$ y $\approx 62\times$ el tiempo de XGBoost sin ofrecer una mejora en la detección. Esto justifica la preferencia industrial por modelos de \textit{gradient boosting} para datos tabulares masivos \cite{chen2016, das2023}.
 
 
 
@@ -618,13 +619,13 @@ Arquitecturas complejas como GNN o LSTM requieren entre 150 y 1.500 segundos par
 La adopción de \textit{eXtreme Gradient Boosting} (XGBoost) como la arquitectura predilecta para la detección de fraude bancario no es meramente circunstancial, sino que responde a una convergencia de superioridad estadística, eficiencia computacional y robustez ante las patologías intrínsecas de los datos financieros \cite{chen2016, das2023, hafez2025}. A continuación, se fundamenta esta elección integrando los hallazgos empíricos derivados del análisis de los resultados cuantitativos.
 
 \subsection{Superioridad en el Manejo de la Asimetría de Clases}
-El fraude bancario se caracteriza por un desbalance extremo, donde la clase positiva suele representar menos del 0.1\% de las observaciones \cite{das2023, yang2026}. Mientras que modelos lineales como la Regresión Logística fallan al capturar fronteras de decisión complejas en estos entornos, XGBoost utiliza un enfoque de aprendizaje secuencial de "modelos débiles" que minimiza de forma iterativa los errores residuales, permitiendo una identificación más precisa de la clase minoritaria . Los datos presentados en la Figura \ref{fig:metricas} validan esta capacidad: XGBoost ostenta el \textit{Recall} más alto (0.279), lo que garantiza una mayor captura de eventos fraudulentos en comparación con Random Forest (0.229) o arquitecturas de grafos (0.125).
+El fraude bancario se caracteriza por un desbalance extremo, donde la clase positiva suele representar menos del 1\% de las observaciones \cite{das2023, yang2026}. Mientras que modelos lineales como la Regresión Logística fallan al capturar fronteras de decisión complejas en estos entornos, XGBoost utiliza un enfoque de aprendizaje secuencial de ``modelos débiles'' que minimiza de forma iterativa los errores residuales, permitiendo una identificación más precisa de la clase minoritaria. Los datos presentados en la Figura \ref{fig:metricas} validan esta capacidad: XGBoost ostenta el \textit{Recall} más alto ($0{,}289$), lo que garantiza una mayor captura de eventos fraudulentos en comparación con Random Forest ($0{,}262$), la GNN ($0{,}253$) o la LSTM ($0{,}248$).
 
 \subsection{Eficiencia en el Frente de Pareto: Calidad vs. Tiempo}
-Desde una vertiente operativa, la detección de fraude requiere un compromiso crítico entre la latencia de respuesta y la precisión del sistema \cite{martini2025}. Según el análisis de la Figura \ref{fig:tiempo}, XGBoost se posiciona de forma única en el Frente de Pareto, logrando el F1-Score más elevado (0.233) con un tiempo de entrenamiento significativamente inferior ($<$50 s) al de modelos de \textit{Deep Learning} como LSTM ($>$350 s). Esta parsimonia computacional lo convierte en la solución más viable para entornos de producción que manejan flujos masivos de transacciones en tiempo real.
+Desde una vertiente operativa, la detección de fraude requiere un compromiso crítico entre la latencia de respuesta y la precisión del sistema \cite{martini2025}. Según el análisis de la Figura \ref{fig:tiempo}, XGBoost se posiciona de forma única en el Frente de Pareto, logrando el F1-Score más elevado ($0{,}236$) con un tiempo de entrenamiento significativamente inferior ($\approx 21$\,s) al de modelos de \textit{Deep Learning} como LSTM ($\approx 171$\,s) o GNN ($\approx 1.307$\,s). Esta parsimonia computacional lo convierte en la solución más viable para entornos de producción que manejan flujos masivos de transacciones en tiempo real.
 
 \subsection{Discriminación Robusta y Curvas de Rendimiento}
-La capacidad discriminatoria del modelo es superior en todas las métricas de área bajo la curva. En la Figura \ref{fig:curvas}, se observa que XGBoost lidera con un ROC-AUC de 0.894 y, más crucialmente, un PR-AUC de 0.156. Este último dato es particularmente relevante en el ámbito académico, ya que el PR-AUC es una métrica mucho más informativa que el ROC-AUC en \textit{datasets} desbalanceados, al ignorar los verdaderos negativos masivos que pueden inflar artificialmente el rendimiento \cite{saito2015, chen2025}.
+La capacidad discriminatoria del modelo es superior en todas las métricas de área bajo la curva. En la Figura \ref{fig:curvas}, se observa que XGBoost lidera con un ROC-AUC de $0{,}893$ y, más crucialmente, un PR-AUC de $0{,}171$. Este último dato es particularmente relevante en el ámbito académico, ya que el PR-AUC es una métrica mucho más informativa que el ROC-AUC en \textit{datasets} desbalanceados, al ignorar los verdaderos negativos masivos que pueden inflar artificialmente el rendimiento \cite{saito2015, chen2025}.
 
 \subsection{Resumen}
 A pesar de la reciente popularidad de las Redes Neuronales de Grafos (GNN) y los Transformers, la literatura científica sostiene que los modelos basados en árboles de decisión potenciados por gradiente siguen definiendo el estado del arte para datos tabulares y estructurados. La capacidad intrínseca de XGBoost para manejar interacciones no lineales de alta dimensionalidad sin requerir el preprocesamiento exhaustivo o la construcción de grafos complejos lo posiciona como el modelo de referencia en la industria financiera. Otro punto a favor de XGBoost en lugar de modelos más modernos, como las Redes Neuronales, es la explicabilidad, necesaria para todo sistema de Inteligencia Artificial y más aún en el caso de las aplicaciones bancarias. 
