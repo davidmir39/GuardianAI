@@ -1,0 +1,62 @@
+{
+  "modelo": "XGBoost",
+  "notebook_origen": "05_final_model_production.ipynb",
+  "manejo_desbalanceo": "scale_pos_weight",
+  "smote": false,
+  "scale_pos_weight": 89.66,
+  "split": "70/15/15 estratificado",
+  "random_state": 42,
+  "busqueda": {
+    "tipo": "RandomizedSearchCV",
+    "n_iter": 30,
+    "cv_folds": 3,
+    "scoring": "average_precision",
+    "mejor_pr_auc_cv": 0.1722
+  },
+  "mejores_params": {
+    "colsample_bytree": 0.9933692563579372,
+    "learning_rate": 0.08577664406446507,
+    "max_depth": 4,
+    "min_child_weight": 9,
+    "n_estimators": 223,
+    "reg_alpha": 0.5081987767407187,
+    "reg_lambda": 0.6958128067908819,
+    "subsample": 0.943343521925488
+  },
+  "metricas_test": {
+    "precision": 0.2295,
+    "recall": 0.2721,
+    "f1": 0.249,
+    "pr_auc": 0.183,
+    "roc_auc": 0.899,
+    "umbral_optimo": 0.9177
+  },
+  "columnas_continuas": [
+    "income",
+    "name_email_similarity",
+    "prev_address_months_count",
+    "current_address_months_count",
+    "customer_age",
+    "days_since_request",
+    "intended_balcon_amount",
+    "zip_count_4w",
+    "velocity_6h",
+    "velocity_24h",
+    "velocity_4w",
+    "bank_branch_count_8w",
+    "date_of_birth_distinct_emails_4w",
+    "bank_months_count",
+    "proposed_credit_limit",
+    "session_length_in_minutes",
+    "device_distinct_emails_8w",
+    "device_fraud_count",
+    "month"
+  ],
+  "columnas_categoricas": [
+    "payment_type",
+    "employment_status",
+    "housing_status",
+    "source",
+    "device_os"
+  ]
+}

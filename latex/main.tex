@@ -886,6 +886,236 @@ El presente hito ha consolidado el desarrollo del núcleo predictivo de Guardian
 
 
 
+% --- CAPÍTULO HITO 4 ---
+\chapter{Hito 4: Despliegue del modelo y paso a producción}
+\label{ch:hito4}
+
+\vspace{0.5cm}
+
+En los Hitos 1 a 3 se diseñó, validó, entrenó y evaluó un modelo XGBoost que detecta fraude bancario con un PR-AUC de 0{,}183 y un ROC-AUC de 0{,}899 sobre el conjunto de test real desbalanceado del \textit{Bank Account Fraud Suite} (NeurIPS 2022). El resultado vive como un artefacto \texttt{joblib} dentro de un \textit{notebook} de Jupyter. El presente Hito 4 convierte ese artefacto en un \textbf{sistema funcional}: un servicio que recibe transacciones desde fuera, devuelve una decisión de fraude/no fraude en milisegundos y puede reentrenarse con un único comando si los datos cambian.
+
+Todo el código y la documentación de operación viven en la carpeta \texttt{deployment/} del repositorio (ver \texttt{deployment/README.md} para la guía \textit{plug-and-play} y \texttt{deployment/DOCUMENTACION.md} para el detalle de cada decisión técnica).
+
+\section{Análisis de las necesidades del sistema}
+\label{sec:hito4-necesidades}
+
+Antes de elegir tecnologías conviene caracterizar la carga de trabajo del servicio. El enunciado plantea tres preguntas clave (slide 5 del Hito 4): ¿requiere GPU?, ¿es intensivo en CPU?, ¿necesitamos almacenar mucho vídeo? Las respuestas para GuardianAI son las siguientes.
+
+\paragraph{GPU.} No se requiere. El modelo en producción es un XGBoost con 223 árboles y profundidad máxima 4; la inferencia consiste en recorrer un bosque relativamente pequeño y devolver una probabilidad. La latencia objetivo (decenas de milisegundos por transacción) se cubre sobradamente en CPU. Anexar GPU encarecería la infraestructura sin mejorar el SLA y complicaría el despliegue (drivers, contenedores con CUDA).
+
+\paragraph{CPU.} Moderadamente intensivo. La inferencia individual es muy ligera, pero el pico real lo produce el contenedor de \textit{entrenamiento} cuando se ejecuta una búsqueda completa de hiperparámetros (\texttt{RandomizedSearchCV} con 30 iteraciones y validación cruzada de 3 \textit{folds} sobre $\sim$700.000 filas). Por eso la solución separa entrenamiento e inferencia (Sección~\ref{sec:hito4-arquitectura}): el contenedor de entrenamiento puede solicitar muchos núcleos cuando se invoca, mientras que el de inferencia se mantiene austero y se replica horizontalmente si hace falta más \textit{throughput}.
+
+\paragraph{Almacenamiento.} Modesto. La entrada y la salida son tabulares (un JSON por transacción, $\sim$1\,KB), no hay vídeo ni binarios pesados. Los artefactos del modelo ocupan menos de 400\,KB. El único activo voluminoso es \texttt{Base.csv} (213\,MB), pero solo lo necesita el contenedor de entrenamiento y de forma puntual. Por tanto basta con un volumen local en el host; no se justifica un \textit{object storage} en esta primera infraestructura, aunque la arquitectura está preparada para sustituir el volumen por MinIO o S3 sin cambios en el código de los contenedores (Sección~\ref{sec:hito4-comparticion}).
+
+\paragraph{Cargas de trabajo y tipos de cliente.} El servicio se diseña para una carga \textbf{mixta}: peticiones \textit{streaming} de una transacción (caso del flujo transaccional bancario en tiempo real) y peticiones \textit{batch} de hasta 10.000 transacciones (recomputos nocturnos, \textit{backtesting}, simulaciones del equipo de modelado). Los clientes esperados son sistemas internos del banco (motor antifraude, cuadros de mando del equipo de \textit{ops}); no hay clientes IoT ni móviles que justifiquen protocolos especializados.
+
+\section{Selección de tecnologías para el despliegue}
+\label{sec:hito4-tecnologias}
+
+\paragraph{Contenerización: Docker.} Es el estándar \textit{de facto} para distribuir aplicaciones reproducibles. Cada contenedor declara explícitamente sus dependencias y aísla su entorno de Python, lo que elimina la categoría completa de errores ``en mi máquina funciona''.
+
+\paragraph{Orquestación local: Docker Compose.} El enunciado lo fija como requisito. Es la elección natural para coordinar dos contenedores en un solo host: declara los servicios, sus volúmenes, las variables de entorno y las dependencias entre ellos en un único \texttt{docker-compose.yml}. Se descartó Kubernetes para esta primera infraestructura porque introduce complejidad operativa (\textit{cluster}, \texttt{kubectl}, manifiestos) que no aporta valor con un único nodo. La migración a Kubernetes sería directa cuando se requiera multinodo (Sección~\ref{sec:hito4-limitaciones}): cada \texttt{service} se transforma en un \texttt{Deployment} (inferencia) o un \texttt{Job}/\texttt{CronJob} (entrenamiento).
+
+\paragraph{Framework de la API: FastAPI.} El enunciado lista cuatro candidatos (slide ``Ejemplo VI: API''): Flask, FastAPI, MLrun y KServe. Se eligió FastAPI por tres motivos:
+\begin{itemize}
+    \item \textbf{Validación declarativa con Pydantic.} Cada transacción tiene 31 campos con tipos, rangos y categorías permitidas. Pydantic los valida automáticamente y devuelve un \texttt{422 Unprocessable Entity} con un error legible si el cliente envía algo inválido. En Flask habría que escribir esa validación a mano y mantenerla.
+    \item \textbf{OpenAPI / Swagger UI gratis.} El \textit{endpoint} \texttt{/docs} se autogenera a partir de los modelos Pydantic. Cualquier persona puede explorar y probar la API sin documentación adicional.
+    \item \textbf{Rendimiento.} FastAPI sobre \texttt{uvicorn} (servidor ASGI) ofrece un \textit{throughput} muy superior a Flask con \textit{workers} síncronos, suficiente para las cargas previstas. Si en el futuro se requieren miles de peticiones por segundo, basta con incrementar la variable \texttt{UVICORN\_WORKERS} o desplegar varias réplicas detrás de un \textit{Ingress}.
+\end{itemize}
+Se descartó KServe / Open Inference Protocol por sobreingeniería para el alcance actual (un único modelo, sin \textit{traffic splitting}). La API queda no obstante diseñada para poder convivir, en el futuro, detrás de un servicio compatible con OIP.
+
+\paragraph{Persistencia entre fases: volumen compartido.} Se descartaron dos alternativas: (1) \textit{object storage} (S3, MinIO) que añade un servicio extra, \textit{secrets} y latencia de red sin justificación para un solo host, y (2) modelo embebido en la imagen de inferencia (\textit{image-baked}) que obligaría a reconstruir y volver a desplegar la imagen en cada reentrenamiento. El volumen compartido es la solución más \textit{plug-and-play} y, lo más importante, define un contrato (tres ficheros con nombres fijos) que se mantiene si en el futuro se sustituye el \textit{bind mount} por MinIO sin tocar el código.
+
+\section{Del notebook al sistema: división en módulos}
+\label{sec:hito4-modularizacion}
+
+El \textit{notebook} \texttt{05\_final\_model\_production.ipynb} concentra todo el flujo en un único fichero: ingesta, exploración, partición, preprocesado, entrenamiento, búsqueda de hiperparámetros, evaluación y persistencia. Este formato es ideal para experimentar pero \textbf{no es ejecutable de forma desatendida} y mezcla preocupaciones que en producción deben separarse.
+
+Siguiendo la regla del Hito 4 (slide ``Ejemplo II''), el notebook se descompone en cuatro módulos con una única responsabilidad cada uno, ubicados en \texttt{deployment/training/pipeline/}:
+
+\begin{itemize}
+    \item \texttt{config.py}: centraliza rutas, listas de columnas (continuas, categóricas, \textit{passthrough}), \texttt{dtype map} para la carga eficiente de Base.csv, semilla aleatoria, parámetros de la búsqueda y los hiperparámetros validados en el Hito 3 (\texttt{BEST\_PARAMS\_HITO3}).
+    \item \texttt{data\_ingestion.py}: única responsabilidad de I/O hacia la fuente de datos. Lee \texttt{Base.csv} aplicando el \texttt{dtype map} (reduce $\sim$50\,\% el consumo de RAM frente al \textit{default}). En producción, este módulo se sustituiría por una conexión a un \textit{data warehouse} o un \textit{bucket} S3 sin tocar el resto del pipeline.
+    \item \texttt{features.py}: construye el \texttt{ColumnTransformer} (StandardScaler para continuas, OneHotEncoder para categóricas, \texttt{passthrough} para binarias). Este artefacto se serializa con \texttt{joblib} para que el contenedor de inferencia lo cargue tal cual y aplique exactamente las mismas transformaciones.
+    \item \texttt{train.py}: orquestador end-to-end. Realiza el \textit{split} estratificado 70/15/15, ajusta el preprocesador en \texttt{train} (sin \textit{leakage}), calcula \texttt{scale\_pos\_weight} sobre \texttt{train}, ejecuta el entrenamiento (modo \texttt{quick} o \texttt{full}, ver Sección~\ref{sec:hito4-modos}), busca el umbral óptimo (máximo F1 sobre la curva PR del test), y persiste modelo, preprocesador y metadatos en el volumen compartido.
+\end{itemize}
+
+Análogamente, en \texttt{deployment/inference/api/}:
+
+\begin{itemize}
+    \item \texttt{settings.py}: rutas de los artefactos y umbrales por variable de entorno.
+    \item \texttt{predictor.py}: \textit{wrapper} que carga modelo y preprocesador una sola vez al arrancar (\textit{lifespan} de FastAPI) y expone \texttt{predict(...)}. Encapsula también la lógica de selección del umbral activo: variable de entorno \texttt{THRESHOLD\_OVERRIDE} > campo \texttt{umbral\_optimo} de \texttt{metadatos.json} > \texttt{DEFAULT\_THRESHOLD}.
+    \item \texttt{schemas.py}: contratos Pydantic. Define \texttt{Transaccion} (los 31 campos), \texttt{LoteTransacciones} (lista de hasta 10.000), y los modelos de respuesta (\texttt{PrediccionResponse}, \texttt{HealthResponse}, \texttt{MetadataResponse}).
+    \item \texttt{main.py}: \textit{wiring} HTTP de FastAPI. Define los \textit{endpoints}, el \textit{lifespan} que carga los artefactos al arrancar y el manejo de errores.
+\end{itemize}
+
+\paragraph{Por qué esta división y no otra.} Son las fronteras naturales que aparecen al pensar en el ciclo de vida real. La ingesta cambiaría si mañana migramos a S3; el preprocesador cambia si añadimos \textit{features}; la búsqueda de hiperparámetros cambia si subimos a un \textit{cluster}; la API cambia si rediseñamos el contrato. Aislar cada cambio a un fichero permite modificarlo sin tocar el resto.
+
+\paragraph{Lo que deliberadamente no se replicó.} El módulo \texttt{src/evaluation.py} del repositorio contiene también funciones de \textit{plotting} (curvas ROC y PR, matrices de confusión) que solo tienen sentido en \textit{notebooks}. En \texttt{deployment/} solo se replicó la función \texttt{buscar\_umbral\_optimo} que es la única necesaria en producción. La razón: el contenedor debe ser \textbf{autocontenido} (no depende de \texttt{src/} del repo) y \textbf{minimal} (no trae código de exploración).
+
+\paragraph{Configurabilidad por entorno.} Siguiendo la regla del Hito 4 (slide ``Ejemplo II''), \textbf{ninguna} ruta está \textit{hard-codeada}: \texttt{DATASET\_PATH}, \texttt{ARTIFACTS\_DIR}, \texttt{REPORTS\_DIR}, \texttt{MODEL\_FILENAME}, \texttt{THRESHOLD\_OVERRIDE}, \texttt{API\_PORT}, etc. todas tienen un valor por defecto razonable y pueden sobrescribirse desde \texttt{.env} o \texttt{docker compose run -e VAR=...}. Esto significa que la misma imagen vale para distintos entornos (desarrollo, \textit{staging}, producción) sin reconstruir.
+
+\section{Arquitectura de contenedores}
+\label{sec:hito4-arquitectura}
+
+La solución se compone de \textbf{tres servicios} declarados en \texttt{docker-compose.yml}:
+
+\begin{enumerate}
+    \item \texttt{bootstrap}: contenedor \textit{one-shot} basado en \texttt{busybox:1.36}. Comprueba si el volumen de artefactos está vacío y, si lo está, copia el modelo preentrenado del Hito 3 (carpeta \texttt{models/} del repositorio) hacia el volumen compartido. Es la pieza que hace el sistema verdaderamente \textit{plug-and-play}: \texttt{docker compose up} funciona en una máquina recién clonada sin necesidad de descargar Base.csv ni reentrenar.
+    \item \texttt{training}: contenedor de entrenamiento. Construido sobre \texttt{python:3.11-slim} más \texttt{libgomp1} (\textit{runtime} OpenMP requerido por XGBoost). Lee \texttt{Base.csv} desde un volumen \textit{read-only} y escribe los artefactos al volumen compartido. Está bajo el perfil \texttt{train}, por lo que no se levanta automáticamente; solo se invoca cuando hace falta reentrenar (\texttt{docker compose --profile train run --rm training}).
+    \item \texttt{inference}: contenedor de la API. Construido sobre la misma imagen base más \texttt{curl} para el \textit{healthcheck}. Lee los artefactos del volumen compartido en modo \textbf{solo lectura} (\texttt{:ro}, evita que un \textit{bug} en la API pueda corromper los artefactos), y expone FastAPI sobre \texttt{uvicorn} en el puerto 8000. Declara \texttt{depends\_on: bootstrap (service\_completed\_successfully)} para garantizar que arranca después de la siembra.
+\end{enumerate}
+
+\paragraph{Por qué dos contenedores en lugar de uno.} El enunciado lo exige (slide ``Ejemplo IV''), pero hay además razones técnicas sólidas. Cada contenedor tiene necesidades muy distintas: el de entrenamiento se ejecuta puntualmente con picos altos de RAM y CPU y necesita acceso a Base.csv, mientras que el de inferencia es un proceso 24/7 con latencia crítica, RAM moderada y sin acceso a datos en bruto. Empaquetarlos juntos significaría que el contenedor de inferencia (que en producción podría tener decenas de réplicas) cargaría dependencias de entrenamiento que nunca usa. Separarlos da imágenes más pequeñas, despliegues más rápidos y un \textit{blast radius} de fallos más acotado: si el \textit{job} de entrenamiento muere, la API sigue sirviendo el modelo anterior; si la API se cae, no afecta al pipeline de \textit{re-train}. Esta separación es además un prerrequisito para implementar el \textit{feedback loop} (slide ``Proyecto DISIA: Hito 4'') en futuros hitos.
+
+\paragraph{Optimizaciones de las imágenes.} Ambas imágenes usan \texttt{python:3.11-slim} ($\sim$120\,MB) en lugar de la imagen completa ($\sim$1\,GB). Solo se añade lo imprescindible. \texttt{requirements.txt} se copia e instala \textbf{antes} del código de la aplicación, de modo que un cambio en un \texttt{.py} no invalida la capa de \texttt{pip} y los \textit{rebuilds} tardan segundos en lugar de minutos.
+
+\section{Compartición de datos entre fases}
+\label{sec:hito4-comparticion}
+
+El único contrato entre los contenedores de entrenamiento e inferencia son \textbf{tres ficheros con nombres fijos} en una carpeta común (\texttt{./shared/artifacts/} en el host, \texttt{/artifacts} dentro de los contenedores):
+
+\begin{itemize}
+    \item \texttt{modelo\_final.joblib}: el clasificador XGBoost entrenado.
+    \item \texttt{preprocesador.joblib}: el \texttt{ColumnTransformer} ajustado en \texttt{train}.
+    \item \texttt{metadatos.json}: información del modelo (fecha de entrenamiento, hiperparámetros, métricas \textit{test}, umbral óptimo, listado de columnas continuas/categóricas).
+\end{itemize}
+
+El contenedor de entrenamiento monta el volumen en lectura-escritura; el de inferencia lo monta en solo lectura. Esto evita que un \textit{bug} en la API pueda corromper los artefactos: solo entrenamiento puede escribir.
+
+\paragraph{El patrón \textit{bootstrap}.} Sin medidas adicionales, levantar la inferencia en una máquina recién clonada fallaría porque el volumen está vacío. Para evitar forzar al usuario a reentrenar antes de probar, el sistema añade un servicio \texttt{bootstrap} que comprueba si los artefactos existen y, en caso contrario, los siembra desde la carpeta \texttt{models/} (donde el Hito 3 dejó el modelo preentrenado). Es \textbf{idempotente} (si los artefactos ya están, no hace nada), \textbf{no invasivo} (no modifica los ficheros originales en \texttt{models/}, solo los copia) y \textbf{reutilizable} (el mismo patrón sirve en Kubernetes como un \texttt{initContainer}).
+
+\paragraph{Estructura final de carpetas.}
+\begin{verbatim}
+deployment/
+  docker-compose.yml         <- orquesta los 3 servicios
+  .env.example                <- variables opcionales (copia a .env)
+  README.md                   <- guia plug-and-play
+  DOCUMENTACION.md            <- decisiones detalladas
+  training/
+    Dockerfile
+    requirements.txt
+    pipeline/
+      config.py
+      data_ingestion.py
+      features.py
+      train.py
+  inference/
+    Dockerfile
+    requirements.txt
+    api/
+      settings.py
+      predictor.py
+      schemas.py
+      main.py
+  shared/artifacts/           <- volumen compartido
+  data/
+    raw/                      <- aqui va Base.csv si se reentrena
+    samples/                  <- JSONs de ejemplo para probar la API
+\end{verbatim}
+
+\section{API de inferencia: contrato y endpoints}
+\label{sec:hito4-api}
+
+La API expone los siguientes \textit{endpoints}:
+
+\begin{itemize}
+    \item \texttt{GET /} -- redirección a \texttt{/docs} (Swagger UI autogenerada).
+    \item \texttt{GET /health} -- diagnóstico. Distingue ``vivo'' de ``vivo y con modelo cargado''. Un orquestador puede usarlo para no enviar tráfico hasta que \texttt{modelo\_cargado: true}.
+    \item \texttt{GET /metadata} -- metadatos del modelo activo (modelo, métricas \textit{test}, fecha de entrenamiento, número de columnas continuas y categóricas). Es la forma de auditar qué modelo se está sirviendo sin abrir el contenedor.
+    \item \texttt{POST /predict} -- predicción para una transacción.
+    \item \texttt{POST /predict/batch} -- predicción para hasta 10.000 transacciones.
+\end{itemize}
+
+\paragraph{Carga útil de respuesta.} Una predicción contiene cinco campos:
+\begin{verbatim}
+{
+  "probabilidad_fraude": 0.0123,
+  "etiqueta": 0,
+  "umbral": 0.9177,
+  "decision": "PERMITIR",
+  "nivel_riesgo": "BAJO"
+}
+\end{verbatim}
+
+Se devuelve el \textbf{umbral aplicado} además de la probabilidad cruda. Esto es deliberado: el cliente no necesita conocer el umbral para interpretar la decisión, pero queda en el \textit{log} si mañana hay que auditar por qué se bloqueó una operación. La etiqueta \texttt{nivel\_riesgo} (BAJO/MEDIO/ALTO/CRITICO) es una abstracción legible para analistas de \textit{ops}, calculada en función de la cercanía de la probabilidad al umbral activo.
+
+\paragraph{Selección del umbral activo.} El umbral se carga en el siguiente orden de prioridad: (1) variable de entorno \texttt{THRESHOLD\_OVERRIDE} (operador en \textit{runtime}), (2) campo \texttt{metricas\_test.umbral\_optimo} de \texttt{metadatos.json} (calculado por entrenamiento maximizando F1 sobre la curva PR del test real, en este caso $0{,}9177$), (3) \texttt{DEFAULT\_THRESHOLD} (\textit{fallback} de seguridad). Esto permite ajustar el \textit{trade-off} precisión/recall sin reentrenar: si negocio decide que prefiere menos falsos positivos basta con \texttt{THRESHOLD\_OVERRIDE=0.95 docker compose restart inference}.
+
+\paragraph{Códigos de error.} \texttt{422 Unprocessable Entity} si el JSON no respeta el contrato (lo gestiona Pydantic), \texttt{503 Service Unavailable} si los artefactos no se cargaron correctamente al arrancar, y \texttt{400 Bad Request} si falla el \texttt{predict} (preprocesador o modelo).
+
+\section{Modos de entrenamiento: \texttt{quick} y \texttt{full}}
+\label{sec:hito4-modos}
+
+El Hito 3 ya validó qué hiperparámetros son óptimos (almacenados en \texttt{metadatos.json}). Lanzar \texttt{RandomizedSearchCV} con $n_{iter}=30$ y CV de 3 \textit{folds} sobre $\sim$700.000 filas tarda decenas de minutos y consume RAM significativa, lo cual es inaceptable para una demostración del despliegue. Por eso \texttt{train.py} ofrece dos modos seleccionables por variable de entorno o \textit{flag}:
+
+\begin{itemize}
+    \item \texttt{SEARCH\_MODE=quick} (por defecto): salta la búsqueda y usa directamente los \texttt{BEST\_PARAMS\_HITO3} definidos en \texttt{config.py}. Tarda en torno a 1 minuto. Útil para verificar que el \textit{pipeline} de despliegue funciona end-to-end o para reentrenar con datos nuevos manteniendo la estructura del Hito 3.
+    \item \texttt{SEARCH\_MODE=full}: ejecuta \texttt{RandomizedSearchCV} con el mismo espacio de búsqueda que el NB05 del Hito 3. Tarda 30--60 minutos. Útil cuando hay sospecha de \textit{drift} fuerte y conviene revisar la familia de hiperparámetros.
+\end{itemize}
+
+Ambos modos producen el \textbf{mismo formato de artefactos}, así que el contenedor de inferencia los consume de forma transparente.
+
+\section{Flujo de uso \textit{plug-and-play}}
+\label{sec:hito4-uso}
+
+El sistema se diseñó para que un usuario nuevo pueda probarlo con tres comandos:
+
+\begin{verbatim}
+cd deployment/
+docker compose up
+curl -X POST http://localhost:8000/predict \
+     -H "Content-Type: application/json" \
+     -d @data/samples/transaccion_legitima.json
+\end{verbatim}
+
+Lo que ocurre en orden:
+\begin{enumerate}
+    \item Docker Compose construye la imagen \texttt{guardianai-inference} (la primera vez).
+    \item El servicio \texttt{bootstrap} (\textit{one-shot}) copia los tres artefactos preentrenados desde \texttt{../models/} a \texttt{./shared/artifacts/}.
+    \item El servicio \texttt{inference} arranca, carga los artefactos en memoria y queda escuchando en \texttt{:8000}.
+    \item El \texttt{curl} envía un JSON de ejemplo y recibe la decisión.
+\end{enumerate}
+
+Para reentrenar (opcional, requiere \texttt{Base.csv} en \texttt{deployment/data/raw/}):
+\begin{verbatim}
+docker compose --profile train run --rm training
+docker compose restart inference
+\end{verbatim}
+
+\section{Limitaciones reconocidas y siguientes pasos}
+\label{sec:hito4-limitaciones}
+
+Esta es una \textbf{primera infraestructura funcional}, lo que pide explícitamente el Hito 4 (slide ``¿Qué haréis en el hito 4?''), no una solución productiva completa. Lo que deliberadamente no se incluye y lo que la sustituiría en una iteración posterior:
+
+\begin{itemize}
+    \item \textbf{\textit{Object storage}}: el volumen local no escala a múltiples nodos. Sustituir por \textbf{MinIO} o S3 (\textit{bonus} del enunciado) manteniendo el contrato de tres ficheros con nombre fijo. El cambio sería transparente para el código de los contenedores.
+    \item \textbf{\textit{Tracking} de experimentos}: no se versionan modelos ni se registran las corridas de entrenamiento. Añadir \textbf{MLflow} (\textit{bonus} del enunciado) sería un cambio aislado en \texttt{train.py} (un \texttt{mlflow.log\_artifact(...)}).
+    \item \textbf{Orquestación multinodo}: Compose es para un solo \textit{host}. Migrar a \textbf{Kubernetes} (\textit{bonus} del enunciado) es directo: \texttt{inference} se convierte en un \texttt{Deployment} con \texttt{Service}, \texttt{training} en un \texttt{Job} o \texttt{CronJob}, el volumen compartido en un \texttt{PersistentVolumeClaim} (o un \textit{bucket} MinIO con \texttt{S3CSI}) y \texttt{bootstrap} en un \texttt{initContainer}.
+    \item \textbf{Autenticación y autorización}: la API está abierta. En producción se añadiría OAuth2/JWT, idealmente delegado a un API \textit{gateway} (Kong, Apigee, Traefik).
+    \item \textbf{Detección de \textit{drift}}: el \textit{monitoring} queda fuera del alcance del Hito 4 (slide ``Monitoring and feedback loop''). La separación en dos contenedores ya está preparada para integrarlo como un tercer servicio (Evidently, WhyLogs).
+    \item \textbf{Calibración de probabilidades}: el modelo XGBoost no está calibrado formalmente; las probabilidades son útiles para \textit{ranking} pero no para interpretación absoluta. La calibración (\texttt{CalibratedClassifierCV}) sería un añadido en \texttt{train.py} sin tocar la API.
+\end{itemize}
+
+\section{Resumen}
+\label{sec:hito4-resumen}
+
+\paragraph{Qué se ha implementado.}
+\begin{itemize}
+    \item Dos contenedores Docker (\texttt{training} e \texttt{inference}) más un \textit{one-shot} \texttt{bootstrap}, orquestados con Docker Compose.
+    \item Una API REST en FastAPI con cinco \textit{endpoints} (\texttt{/}, \texttt{/health}, \texttt{/metadata}, \texttt{/predict}, \texttt{/predict/batch}), validación Pydantic y documentación interactiva autogenerada.
+    \item División del \textit{notebook} de producción en cuatro módulos con responsabilidad única, manteniendo coherencia con el código de los Hitos previos.
+    \item Compartición de artefactos vía volumen montado en lectura-escritura (entrenamiento) y solo lectura (inferencia), con un contrato explícito de tres ficheros.
+    \item Configurabilidad total por variable de entorno: ninguna ruta \textit{hard-codeada}.
+    \item Documentación de operación (\texttt{deployment/README.md}) y documentación de decisiones (\texttt{deployment/DOCUMENTACION.md}).
+\end{itemize}
+
+\paragraph{Cómo enlaza con los Hitos previos.} El contenedor de inferencia consume directamente los artefactos producidos por el NB05 del Hito 3 (\texttt{models/modelo\_final.joblib}, \texttt{models/preprocesador.joblib}, \texttt{models/metadatos.json}); las métricas servidas en \texttt{/metadata} son las mismas del Hito 3. El contenedor de entrenamiento reproduce el flujo del NB05 fuera del \textit{notebook}, garantizando que se puede regenerar el modelo cuando los datos cambien.
+
+\paragraph{Listo para evolucionar.} La arquitectura está preparada para añadir MinIO, MLflow y Kubernetes (\textit{bonus} del enunciado) sin reescribir el núcleo: cada uno sustituye una pieza acotada (volumen, persistencia de experimentos, orquestación) sin tocar el contrato entre entrenamiento e inferencia.
+
+
+
 % --- BIBLIOGRAFÍA ---
 \begin{thebibliography}{9}
 

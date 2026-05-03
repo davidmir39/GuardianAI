@@ -1,0 +1,8 @@
+# Esta carpeta es el volumen compartido entre los contenedores de
+# entrenamiento e inferencia. Se rellena en runtime con:
+#   - modelo_final.joblib
+#   - preprocesador.joblib
+#   - metadatos.json
+#
+# Su contenido NO se versiona (ver .gitignore). Este .gitkeep solo
+# garantiza que la carpeta exista al clonar el repo.

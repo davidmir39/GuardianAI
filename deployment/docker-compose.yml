@@ -1,0 +1,90 @@
+# =====================================================================
+# GuardianAI -- Despliegue (Hito 4)
+#
+# Tres servicios coordinados por un volumen comun (./shared/artifacts):
+#
+#  1. bootstrap  - one-shot. Si la carpeta de artefactos esta vacia,
+#                  siembra el modelo preentrenado desde ../models/.
+#                  Lo hace plug-and-play: el usuario puede levantar
+#                  inferencia sin haber entrenado antes.
+#  2. training   - perfil 'train'. Lee /data/raw/Base.csv y escribe
+#                  modelo + preprocesador + metadatos en /artifacts.
+#  3. inference  - servicio principal. FastAPI + uvicorn en el puerto
+#                  8000. Solo lectura sobre /artifacts.
+#
+# Comandos rapidos:
+#   docker compose up                          # bootstrap + inferencia
+#   docker compose --profile train up training # re-entrenar
+#   docker compose down                        # parar todo
+# =====================================================================
+
+services:
+
+  bootstrap:
+    image: busybox:1.36
+    container_name: guardianai-bootstrap
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ ! -f /artifacts/modelo_final.joblib ]; then
+          echo "[bootstrap] Sembrando artefactos preentrenados desde /seed/ ..."
+          cp -v /seed/modelo_final.joblib /artifacts/
+          cp -v /seed/preprocesador.joblib /artifacts/
+          cp -v /seed/metadatos.json /artifacts/
+          echo "[bootstrap] Listo."
+        else
+          echo "[bootstrap] Artefactos ya presentes en /artifacts. Skip."
+        fi
+    volumes:
+      - ./shared/artifacts:/artifacts
+      - ../models:/seed:ro
+
+  training:
+    build:
+      context: ./training
+      dockerfile: Dockerfile
+    image: guardianai-training:latest
+    container_name: guardianai-training
+    profiles: ["train"]
+    restart: "no"
+    environment:
+      DATASET_PATH: /data/raw/Base.csv
+      ARTIFACTS_DIR: /artifacts
+      REPORTS_DIR: /artifacts/reports
+      SEARCH_MODE: ${SEARCH_MODE:-quick}
+      SEARCH_N_ITER: ${SEARCH_N_ITER:-30}
+      SEARCH_CV_FOLDS: ${SEARCH_CV_FOLDS:-3}
+      RANDOM_STATE: ${RANDOM_STATE:-42}
+      N_JOBS: ${N_JOBS:--1}
+    volumes:
+      - ./data/raw:/data/raw:ro
+      - ./shared/artifacts:/artifacts
+
+  inference:
+    build:
+      context: ./inference
+      dockerfile: Dockerfile
+    image: guardianai-inference:latest
+    container_name: guardianai-inference
+    restart: unless-stopped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      ARTIFACTS_DIR: /artifacts
+      DEFAULT_THRESHOLD: ${DEFAULT_THRESHOLD:-0.5}
+      THRESHOLD_OVERRIDE: ${THRESHOLD_OVERRIDE:-}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+    volumes:
+      - ./shared/artifacts:/artifacts:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,18 @@
+# Patrones excluidos al construir imagenes (reduce el contexto enviado a Docker).
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.env
+.env.*
+*.md
+docs/
+shared/
+data/
+.git/
+.gitignore
+.idea/
+.vscode/
