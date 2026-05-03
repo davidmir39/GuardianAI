@@ -894,7 +894,7 @@ El presente hito ha consolidado el desarrollo del núcleo predictivo de Guardian
 
 En los Hitos 1 a 3 se diseñó, validó, entrenó y evaluó un modelo XGBoost que detecta fraude bancario con un PR-AUC de 0{,}183 y un ROC-AUC de 0{,}899 sobre el conjunto de test real desbalanceado del \textit{Bank Account Fraud Suite} (NeurIPS 2022). El resultado vive como un artefacto \texttt{joblib} dentro de un \textit{notebook} de Jupyter. El presente Hito 4 convierte ese artefacto en un \textbf{sistema funcional}: un servicio que recibe transacciones desde fuera, devuelve una decisión de fraude/no fraude en milisegundos y puede reentrenarse con un único comando si los datos cambian.
 
-Todo el código y la documentación de operación viven en la carpeta \texttt{deployment/} del repositorio (ver \texttt{deployment/README.md} para la guía \textit{plug-and-play} y \texttt{deployment/DOCUMENTACION.md} para el detalle de cada decisión técnica).
+Todo el código y la documentación de operación viven en la carpeta \texttt{deployment/} del repositorio (ver \texttt{deployment/README.md} para la guía \textit{plug-and-play}).
 
 \section{Análisis de las necesidades del sistema}
 \label{sec:hito4-necesidades}
@@ -991,7 +991,6 @@ deployment/
   docker-compose.yml         <- orquesta los 3 servicios
   .env.example                <- variables opcionales (copia a .env)
   README.md                   <- guia plug-and-play
-  DOCUMENTACION.md            <- decisiones detalladas
   training/
     Dockerfile
     requirements.txt
@@ -1107,7 +1106,7 @@ Esta es una \textbf{primera infraestructura funcional}, lo que pide explícitame
     \item División del \textit{notebook} de producción en cuatro módulos con responsabilidad única, manteniendo coherencia con el código de los Hitos previos.
     \item Compartición de artefactos vía volumen montado en lectura-escritura (entrenamiento) y solo lectura (inferencia), con un contrato explícito de tres ficheros.
     \item Configurabilidad total por variable de entorno: ninguna ruta \textit{hard-codeada}.
-    \item Documentación de operación (\texttt{deployment/README.md}) y documentación de decisiones (\texttt{deployment/DOCUMENTACION.md}).
+    \item Documentación de operación (\texttt{deployment/README.md}).
 \end{itemize}
 
 \paragraph{Cómo enlaza con los Hitos previos.} El contenedor de inferencia consume directamente los artefactos producidos por el NB05 del Hito 3 (\texttt{models/modelo\_final.joblib}, \texttt{models/preprocesador.joblib}, \texttt{models/metadatos.json}); las métricas servidas en \texttt{/metadata} son las mismas del Hito 3. El contenedor de entrenamiento reproduce el flujo del NB05 fuera del \textit{notebook}, garantizando que se puede regenerar el modelo cuando los datos cambien.
