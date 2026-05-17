@@ -77,14 +77,59 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       ARTIFACTS_DIR: /artifacts
+      LOGS_DIR: /logs
       DEFAULT_THRESHOLD: ${DEFAULT_THRESHOLD:-0.5}
       THRESHOLD_OVERRIDE: ${THRESHOLD_OVERRIDE:-}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
     volumes:
       - ./shared/artifacts:/artifacts:ro
+      - ./shared/logs:/logs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: guardianai-prometheus
+    restart: unless-stopped
+    depends_on:
+      - inference
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+
+  monitor:
+    build:
+      context: ./monitoring
+      dockerfile: Dockerfile
+    image: guardianai-monitor:latest
+    container_name: guardianai-monitor
+    restart: unless-stopped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      inference:
+        condition: service_healthy
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ARTIFACTS_DIR: /artifacts
+      LOGS_DIR: /logs
+      API_URL: http://inference:8000
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-60}
+      CPU_THRESHOLD: ${CPU_THRESHOLD:-80.0}
+      RAM_THRESHOLD: ${RAM_THRESHOLD:-80.0}
+      DRIFT_Z_THRESHOLD: ${DRIFT_Z_THRESHOLD:-3.0}
+      FRAUD_RATE_THRESHOLD: ${FRAUD_RATE_THRESHOLD:-0.10}
+      MIN_PREDICTIONS_DRIFT: ${MIN_PREDICTIONS_DRIFT:-30}
+      RETRAIN_ON_DRIFT: ${RETRAIN_ON_DRIFT:-false}
+    volumes:
+      - ./shared/artifacts:/artifacts:ro
+      - ./shared/logs:/logs
+      - /var/run/docker.sock:/var/run/docker.sock  # para trigger retrain
