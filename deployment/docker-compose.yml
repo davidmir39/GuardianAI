@@ -1,7 +1,8 @@
 # =====================================================================
-# GuardianAI -- Despliegue (Hito 4)
+# GuardianAI -- Despliegue (Hitos 4 y 5)
 #
-# Tres servicios coordinados por un volumen comun (./shared/artifacts):
+# Cinco servicios coordinados por dos volumenes (./shared/artifacts y
+# ./shared/logs):
 #
 #  1. bootstrap  - one-shot. Si la carpeta de artefactos esta vacia,
 #                  siembra el modelo preentrenado desde ../models/.
@@ -10,10 +11,15 @@
 #  2. training   - perfil 'train'. Lee /data/raw/Base.csv y escribe
 #                  modelo + preprocesador + metadatos en /artifacts.
 #  3. inference  - servicio principal. FastAPI + uvicorn en el puerto
-#                  8000. Solo lectura sobre /artifacts.
+#                  8000. Solo lectura sobre /artifacts; escribe los
+#                  logs JSONL de predicciones y feedback (Hito 5).
+#  4. prometheus - scrapea /metrics de inference cada 15s. UI en :9090.
+#  5. monitor    - bucle de monitorizacion (CPU, RAM, drift, F1, alertas
+#                  por Telegram). Dispara reentrenamiento y /reload si
+#                  RETRAIN_ON_DRIFT=true.
 #
 # Comandos rapidos:
-#   docker compose up                          # bootstrap + inferencia
+#   docker compose up                          # los 4 servicios base
 #   docker compose --profile train up training # re-entrenar
 #   docker compose down                        # parar todo
 # =====================================================================
@@ -129,6 +135,9 @@ services:
       FRAUD_RATE_THRESHOLD: ${FRAUD_RATE_THRESHOLD:-0.10}
       MIN_PREDICTIONS_DRIFT: ${MIN_PREDICTIONS_DRIFT:-30}
       RETRAIN_ON_DRIFT: ${RETRAIN_ON_DRIFT:-false}
+      MODEL_F1_THRESHOLD: ${MODEL_F1_THRESHOLD:-0.20}
+      MIN_CONFIRMADOS_F1: ${MIN_CONFIRMADOS_F1:-30}
+      ALERT_REMINDER_HOURS: ${ALERT_REMINDER_HOURS:-1}
     volumes:
       - ./shared/artifacts:/artifacts:ro
       - ./shared/logs:/logs

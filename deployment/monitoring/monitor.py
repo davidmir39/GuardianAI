@@ -3,16 +3,19 @@ monitor.py -- Servicio de monitorización GuardianAI (Hito 5).
 
 Responsabilidades:
   1. Metricas operativas: CPU y RAM via psutil. Alerta si superan umbral.
-  2. Metricas del modelo: tasa de fraude en predicciones recientes. Alerta si anomala.
+  2. Metricas del modelo: tasa de fraude en predicciones recientes y F1 sobre
+     ventana confirmada (via /model-metrics). Alerta si F1 cae bajo umbral.
   3. Deteccion de drift: compara distribucion de features recientes vs referencia.
      Alerta si alguna feature se desvia mas de DRIFT_Z_THRESHOLD desviaciones tipicas.
-  4. Alertas: Telegram.
-  5. Feedback loop: si hay drift, dispara reentrenamiento via Docker CLI.
+  4. Alertas: Telegram con deduplicacion por estado.
+  5. Feedback loop: si hay drift y RETRAIN_ON_DRIFT, dispara reentrenamiento via
+     Docker CLI y luego llama a /reload de la API para activar el modelo nuevo.
 
 Variables de entorno configurables (ver docker-compose.yml):
   TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, ARTIFACTS_DIR, LOGS_DIR, API_URL,
   CHECK_INTERVAL, CPU_THRESHOLD, RAM_THRESHOLD, DRIFT_Z_THRESHOLD,
-  FRAUD_RATE_THRESHOLD, MIN_PREDICTIONS_DRIFT, RETRAIN_ON_DRIFT
+  FRAUD_RATE_THRESHOLD, MIN_PREDICTIONS_DRIFT, RETRAIN_ON_DRIFT,
+  MODEL_F1_THRESHOLD, MIN_CONFIRMADOS_F1
 """
 
 from __future__ import annotations
@@ -51,6 +54,8 @@ FRAUD_RATE_THRESHOLD= float(os.getenv("FRAUD_RATE_THRESHOLD", "0.10"))
 MIN_PREDICTIONS     = int(os.getenv("MIN_PREDICTIONS_DRIFT", "30"))
 RETRAIN_ON_DRIFT    = os.getenv("RETRAIN_ON_DRIFT", "false").lower() == "true"
 ALERT_REMINDER_HOURS = float(os.getenv("ALERT_REMINDER_HOURS", "1"))
+MODEL_F1_THRESHOLD  = float(os.getenv("MODEL_F1_THRESHOLD", "0.20"))
+MIN_CONFIRMADOS_F1  = int(os.getenv("MIN_CONFIRMADOS_F1", "30"))
 
 PREDICTIONS_LOG     = LOGS_DIR / "predictions_log.jsonl"
 REFERENCE_STATS     = ARTIFACTS_DIR / "reference_stats.json"
@@ -215,10 +220,68 @@ def comprobar_drift(registros: list) -> Tuple[bool, List[str]]:
 
 
 # ---------------------------------------------------------------------- #
-# 5. Feedback loop: reentrenamiento                                      #
+# 5. Metricas del modelo (F1, AUC, Precision, Recall) via API            #
 # ---------------------------------------------------------------------- #
+def comprobar_metricas_modelo() -> Tuple[dict | None, List[str]]:
+    """Consulta GET /model-metrics y alerta si el F1 cae bajo umbral.
+
+    Devuelve (snapshot, alertas). snapshot es None si la API no esta accesible.
+    """
+    try:
+        resp = requests.get(f"{API_URL}/model-metrics", timeout=5)
+        resp.raise_for_status()
+        snapshot = resp.json()
+    except Exception as exc:
+        logger.warning("No se pudo consultar /model-metrics: %s", exc)
+        return None, []
+
+    n_conf = snapshot.get("n_confirmados", 0)
+    f1 = snapshot.get("f1")
+    if n_conf < MIN_CONFIRMADOS_F1 or f1 is None:
+        return snapshot, []
+
+    alertas: List[str] = []
+    if f1 < MODEL_F1_THRESHOLD:
+        precision = snapshot.get("precision")
+        recall = snapshot.get("recall")
+        auc = snapshot.get("auc")
+        alertas.append(
+            f"<b>F1 del modelo degradado:</b> {f1:.3f} "
+            f"(umbral: {MODEL_F1_THRESHOLD:.2f}) sobre {n_conf} confirmados.\n"
+            f"  • precision={precision:.3f}" + (f" · recall={recall:.3f}" if recall is not None else "")
+            + (f" · AUC={auc:.3f}" if auc is not None else "")
+        )
+    return snapshot, alertas
+
+
+# ---------------------------------------------------------------------- #
+# 6. Feedback loop: reentrenamiento + recarga en caliente                #
+# ---------------------------------------------------------------------- #
+def recargar_modelo_api() -> bool:
+    """Llama a POST /reload de la API para activar el modelo recien entrenado."""
+    try:
+        resp = requests.post(f"{API_URL}/reload", timeout=30)
+        resp.raise_for_status()
+        info = resp.json()
+        logger.info(
+            "Modelo recargado en API: %s (umbral=%.4f)",
+            info.get("modelo"), float(info.get("umbral_activo", 0)),
+        )
+        enviar_telegram(
+            f"<b>Modelo recargado en caliente</b>\n"
+            f"Version: <code>{info.get('modelo')}</code>\n"
+            f"Umbral: <code>{info.get('umbral_activo')}</code>"
+        )
+        return True
+    except Exception as exc:
+        logger.error("Error al recargar el modelo via API: %s", exc)
+        enviar_telegram(f"<b>Error al recargar el modelo:</b> {exc}")
+        return False
+
+
 def disparar_reentrenamiento() -> None:
-    """Lanza el contenedor de entrenamiento via Docker CLI."""
+    """Lanza el contenedor de entrenamiento via Docker CLI y, si va bien,
+    invoca /reload para que el modelo nuevo entre en produccion sin restart."""
     enviar_telegram("🔄 <b>Iniciando reentrenamiento automatico...</b>")
     logger.info("Disparando reentrenamiento via docker compose.")
     try:
@@ -235,6 +298,7 @@ def disparar_reentrenamiento() -> None:
         if result.returncode == 0:
             enviar_telegram("<b>Reentrenamiento completado</b> correctamente.")
             logger.info("Reentrenamiento completado.")
+            recargar_modelo_api()
         else:
             msg = result.stderr[:400] if result.stderr else "sin detalles"
             enviar_telegram(f"<b>Error en reentrenamiento:</b>\n<code>{msg}</code>")
@@ -255,7 +319,10 @@ def leer_estado_alerta() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"drift": False, "fraud_rate": False, "cpu": False, "ram": False, "ultima_alerta": None}
+    return {
+        "drift": False, "fraud_rate": False, "cpu": False, "ram": False,
+        "model_f1": False, "ultima_alerta": None,
+    }
 
 
 def guardar_estado_alerta(estado: dict) -> None:
@@ -283,15 +350,21 @@ def ciclo_monitorizacion() -> None:
     # 4. Drift
     drift_detectado, alertas_drift = comprobar_drift(registros)
 
-    # 5. Log de estado
+    # 5. Metricas del modelo (F1 sobre ventana confirmada)
+    snapshot_modelo, alertas_modelo = comprobar_metricas_modelo()
+    f1_str = "N/A"
+    if snapshot_modelo and snapshot_modelo.get("f1") is not None:
+        f1_str = f"{snapshot_modelo['f1']:.3f} ({snapshot_modelo.get('n_confirmados', 0)} conf.)"
+
+    # 6. Log de estado
     tasa_str = f"{tasa_fraude*100:.1f}%" if tasa_fraude is not None else "N/A"
     logger.info(
-        "[%s] CPU=%.1f%% RAM=%.1f%% Predicciones=%d TasaFraude=%s Drift=%s",
-        ahora, cpu, ram, len(registros), tasa_str, drift_detectado,
+        "[%s] CPU=%.1f%% RAM=%.1f%% Predicciones=%d TasaFraude=%s Drift=%s F1=%s",
+        ahora, cpu, ram, len(registros), tasa_str, drift_detectado, f1_str,
     )
 
-     # 6. Enviar alertas consolidadas solo si el estado cambia
-    todas_alertas = alertas_op + alertas_fraude + alertas_drift
+    # 7. Enviar alertas consolidadas solo si el estado cambia
+    todas_alertas = alertas_op + alertas_fraude + alertas_drift + alertas_modelo
 
     estado_anterior = leer_estado_alerta()
     estado_actual = {
@@ -299,9 +372,13 @@ def ciclo_monitorizacion() -> None:
         "fraud_rate": len(alertas_fraude) > 0,
         "cpu": len([a for a in alertas_op if "CPU" in a]) > 0,
         "ram": len([a for a in alertas_op if "RAM" in a]) > 0,
+        "model_f1": len(alertas_modelo) > 0,
     }
 
-    estado_limpio = {"drift": False, "fraud_rate": False, "cpu": False, "ram": False}
+    estado_limpio = {
+        "drift": False, "fraud_rate": False, "cpu": False, "ram": False,
+        "model_f1": False,
+    }
 
     ahora_dt = datetime.utcnow()
     ultima_alerta_str = estado_anterior.get("ultima_alerta")
@@ -313,7 +390,7 @@ def ciclo_monitorizacion() -> None:
         except Exception:
             pass
 
-    campos = ["drift", "fraud_rate", "cpu", "ram"]
+    campos = ["drift", "fraud_rate", "cpu", "ram", "model_f1"]
     hay_cambio = any(estado_actual.get(c) != estado_anterior.get(c) for c in campos)
     hay_recordatorio = todas_alertas and horas_desde_ultima >= ALERT_REMINDER_HOURS
 
@@ -327,7 +404,7 @@ def ciclo_monitorizacion() -> None:
             )
             enviar_telegram(mensaje)
             estado_actual["ultima_alerta"] = ahora_dt.isoformat()
-        elif hay_cambio and estado_anterior != estado_limpio:
+        elif hay_cambio and {k: estado_anterior.get(k, False) for k in campos} != estado_limpio:
             enviar_telegram(
                 f"<b>GuardianAI Monitor</b> [{ahora}]\n"
                 f"El sistema ha vuelto a estado normal."
@@ -335,7 +412,7 @@ def ciclo_monitorizacion() -> None:
             estado_actual["ultima_alerta"] = None
         guardar_estado_alerta(estado_actual)
 
-    # 7. Feedback loop
+    # 8. Feedback loop
     if drift_detectado and RETRAIN_ON_DRIFT:
         disparar_reentrenamiento()
 
@@ -344,19 +421,19 @@ def main() -> None:
     logger.info("Monitor GuardianAI iniciado.")
     logger.info(
         "Config: CHECK_INTERVAL=%ds CPU_TH=%.0f%% RAM_TH=%.0f%% "
-        "DRIFT_Z=%.1f FRAUD_TH=%.0f%% RETRAIN=%s",
+        "DRIFT_Z=%.1f FRAUD_TH=%.0f%% F1_TH=%.2f RETRAIN=%s",
         CHECK_INTERVAL, CPU_THRESHOLD, RAM_THRESHOLD,
-        DRIFT_Z_THRESHOLD, FRAUD_RATE_THRESHOLD * 100, RETRAIN_ON_DRIFT,
+        DRIFT_Z_THRESHOLD, FRAUD_RATE_THRESHOLD * 100,
+        MODEL_F1_THRESHOLD, RETRAIN_ON_DRIFT,
     )
 
     enviar_telegram(
         "<b>GuardianAI Monitor iniciado</b>\n"
         f"Intervalo de comprobacion: {CHECK_INTERVAL}s\n"
         f"Drift z-threshold: {DRIFT_Z_THRESHOLD}\n"
+        f"F1 threshold: {MODEL_F1_THRESHOLD:.2f}\n"
         f"Reentrenamiento automatico: {'SI' if RETRAIN_ON_DRIFT else 'NO'}"
     )
-
-    retrain_en_curso = False
 
     while True:
         try:

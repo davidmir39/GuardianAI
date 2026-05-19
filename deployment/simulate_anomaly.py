@@ -6,21 +6,31 @@ para disparar las alertas de drift y tasa de fraude del monitor.
 
 Uso:
     python simulate_anomaly.py [--url URL] [--n N] [--modo MODO]
+                               [--feedback] [--feedback-delay-min S]
+                               [--feedback-delay-max S]
 
 Modos:
     fraude    -- solicitudes con alta probabilidad de fraude (velocidades altas,
                  foreign_request=1, keep_alive_session=1, etc.)
     normal    -- solicitudes tipicas de un cliente legitimo
     mixto     -- mezcla 80% fraude + 20% normal (por defecto)
+
+Feedback diferido (--feedback):
+    Tras cada prediccion se programa en un hilo aparte el envio de /feedback
+    con la etiqueta real (1 para fraude, 0 para legitima) despues de un retraso
+    aleatorio en [feedback_delay_min, feedback_delay_max] segundos. Asi se
+    simula el ground truth que en produccion llegaria con dias o semanas de
+    desfase y se alimentan las metricas F1/AUC/precision/recall de la API.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import random
 import sys
+import threading
 import time
+from typing import Optional
 
 import requests
 
@@ -120,12 +130,44 @@ def enviar_solicitud(url: str, datos: dict) -> dict | None:
         return None
 
 
+def _enviar_feedback_diferido(
+    url: str, request_id: str, fraud_bool_real: int, delay: float
+) -> None:
+    """Espera `delay` segundos y envia /feedback. Pensada para hilos daemon."""
+    time.sleep(delay)
+    try:
+        requests.post(
+            f"{url}/feedback",
+            json={"request_id": request_id, "fraud_bool_real": fraud_bool_real},
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simulacion de entorno anomalo GuardianAI")
     parser.add_argument("--url",  default="http://localhost:8000", help="URL base de la API")
     parser.add_argument("--n",    type=int, default=100, help="Numero de solicitudes a enviar")
     parser.add_argument("--modo", choices=["fraude", "normal", "mixto"], default="mixto")
     parser.add_argument("--delay", type=float, default=0.1, help="Segundos entre solicitudes")
+    parser.add_argument(
+        "--feedback",
+        action="store_true",
+        help="Envia /feedback con la etiqueta real tras un retraso aleatorio.",
+    )
+    parser.add_argument(
+        "--feedback-delay-min",
+        type=float,
+        default=1.0,
+        help="Retraso minimo (s) del feedback respecto a la prediccion.",
+    )
+    parser.add_argument(
+        "--feedback-delay-max",
+        type=float,
+        default=10.0,
+        help="Retraso maximo (s) del feedback respecto a la prediccion.",
+    )
     args = parser.parse_args()
 
     print(f"\n{'='*60}")
@@ -150,15 +192,23 @@ def main() -> None:
         sys.exit(1)
 
     contadores = {"BLOQUEAR": 0, "PERMITIR": 0, "error": 0}
+    hilos_feedback: list[threading.Thread] = []
 
     for i in range(1, args.n + 1):
-        # Seleccionar plantilla segun modo
+        # Seleccionar plantilla segun modo y registrar la etiqueta real.
         if args.modo == "fraude":
             datos = _variacion(SOLICITUD_FRAUDE)
+            etiqueta_real = 1
         elif args.modo == "normal":
             datos = _variacion(SOLICITUD_NORMAL)
+            etiqueta_real = 0
         else:  # mixto: 80% fraude, 20% normal
-            datos = _variacion(SOLICITUD_FRAUDE if random.random() < 0.8 else SOLICITUD_NORMAL)
+            if random.random() < 0.8:
+                datos = _variacion(SOLICITUD_FRAUDE)
+                etiqueta_real = 1
+            else:
+                datos = _variacion(SOLICITUD_NORMAL)
+                etiqueta_real = 0
 
         resultado = enviar_solicitud(args.url, datos)
 
@@ -166,6 +216,7 @@ def main() -> None:
             contadores["error"] += 1
         else:
             pred = resultado.get("prediccion", {})
+            request_id: Optional[str] = resultado.get("request_id")
             decision = pred.get("decision", "?")
             prob = pred.get("probabilidad_fraude", 0)
             riesgo = pred.get("nivel_riesgo", "?")
@@ -174,6 +225,18 @@ def main() -> None:
                 f"  [{i:04d}] prob={prob:.4f}  decision={decision}  "
                 f"riesgo={riesgo}"
             )
+
+            if args.feedback and request_id:
+                delay = random.uniform(
+                    args.feedback_delay_min, args.feedback_delay_max
+                )
+                hilo = threading.Thread(
+                    target=_enviar_feedback_diferido,
+                    args=(args.url, request_id, etiqueta_real, delay),
+                    daemon=False,
+                )
+                hilo.start()
+                hilos_feedback.append(hilo)
 
         time.sleep(args.delay)
 
@@ -189,6 +252,19 @@ def main() -> None:
     print(f"  BLOQUEAR:        {bloqueadas} ({bloqueadas/total*100:.1f}%)")
     print(f"  PERMITIR:        {permitidas}  ({permitidas/total*100:.1f}%)")
     print(f"  Errores:         {errores}")
+
+    if args.feedback and hilos_feedback:
+        print(
+            f"\n  Esperando a que finalicen {len(hilos_feedback)} feedbacks "
+            f"(retraso max ~{args.feedback_delay_max:.0f}s)..."
+        )
+        for hilo in hilos_feedback:
+            hilo.join()
+        print(
+            f"  Feedbacks enviados. Consulta GET {args.url}/model-metrics o el "
+            f"dashboard de Prometheus para ver F1/AUC/Precision/Recall."
+        )
+
     print(f"\n  El monitor deberia detectar anomalia en el proximo ciclo.")
     print(f"  Revisa Telegram y los logs del contenedor 'monitor'.\n")
 

@@ -118,6 +118,12 @@ class PrediccionItem(BaseModel):
 class PrediccionResponse(BaseModel):
     status: Literal["success"] = "success"
     model_version: str
+    request_id: str = Field(..., description="UUID asignado a esta prediccion, usable para /feedback.")
+    prediccion: PrediccionItem
+
+
+class PrediccionLoteItem(BaseModel):
+    request_id: str
     prediccion: PrediccionItem
 
 
@@ -125,7 +131,7 @@ class PrediccionLoteResponse(BaseModel):
     status: Literal["success"] = "success"
     model_version: str
     n: int
-    predicciones: List[PrediccionItem]
+    predicciones: List[PrediccionLoteItem]
 
 
 class HealthResponse(BaseModel):
@@ -142,3 +148,43 @@ class MetadataResponse(BaseModel):
     metricas_test: dict
     n_columnas_continuas: int
     n_columnas_categoricas: int
+
+
+# ====================================================================== #
+# Feedback y metricas del modelo (Hito 5)                                #
+# ====================================================================== #
+class FeedbackRequest(BaseModel):
+    """Etiqueta real de una prediccion previa, recibida con latencia diferida.
+
+    El campo request_id es el devuelto en /predict. fraud_bool_real es la
+    verdad confirmada (0 = legitima, 1 = fraude).
+    """
+
+    request_id: str = Field(..., description="UUID devuelto por /predict.")
+    fraud_bool_real: int = Field(..., ge=0, le=1)
+
+
+class FeedbackResponse(BaseModel):
+    status: Literal["ok", "ignored"]
+    request_id: str
+    detalle: Optional[str] = None
+    n_confirmados: int = 0
+
+
+class ModelMetricsResponse(BaseModel):
+    """Snapshot de las metricas del modelo sobre la ventana movil de confirmados."""
+
+    n_confirmados: int
+    ventana: int
+    f1: Optional[float] = None
+    auc: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    ultima_actualizacion: Optional[str] = None
+
+
+class ReloadResponse(BaseModel):
+    status: Literal["ok"]
+    modelo: str
+    umbral_activo: float
+    fecha_entrenamiento: Optional[str] = None

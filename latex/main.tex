@@ -1114,6 +1114,157 @@ Esta es una \textbf{primera infraestructura funcional}, lo que pide explícitame
 \paragraph{Listo para evolucionar.} La arquitectura está preparada para añadir MinIO, MLflow y Kubernetes (\textit{bonus} del enunciado) sin reescribir el núcleo: cada uno sustituye una pieza acotada (volumen, persistencia de experimentos, orquestación) sin tocar el contrato entre entrenamiento e inferencia.
 
 
+% --- CAPÍTULO 5 ---
+\chapter{Hito 5: Monitorización y \textit{feedback loop}}
+\label{ch:hito5}
+
+\section{Introducción}
+\label{sec:hito5-intro}
+
+Un modelo desplegado no es un modelo terminado. Una vez en producción, el sistema se enfrenta a tres riesgos que el conjunto de test no anticipa: degradación operativa (latencia, consumo de recursos), \textit{data drift} (cambios en la distribución de las solicitudes entrantes respecto a las usadas para entrenar) y degradación de la calidad predictiva (caída de $F_1$, AUC o precisión sobre datos reales). El Hito 5 cierra el ciclo de vida del Hito 4 añadiendo una capa de observabilidad que detecta los tres tipos de degradación, un canal de alertas que notifica al equipo y un \textit{feedback loop} que permite reentrenar y desplegar un modelo nuevo sin reiniciar el servicio.
+
+El alcance fijado por el enunciado se cubre íntegramente con la arquitectura descrita en este capítulo: \textbf{(i)} métricas operativas y de modelo expuestas vía Prometheus, \textbf{(ii)} detección de \textit{data drift} estadístico sobre las solicitudes recibidas, \textbf{(iii)} sistema de alertas por Telegram con al menos una alerta operativa y una de modelo, \textbf{(iv)} simulación de entorno anómalo y \textbf{(v)} \textit{feedback loop} con reentrenamiento simple y recarga en caliente del modelo.
+
+\section{Selección de tecnologías}
+\label{sec:hito5-stack}
+
+Se ha optado por un \textit{stack} de observabilidad ligero, alineado con la simplicidad del despliegue del Hito 4: Prometheus para recolección de métricas y un servicio Python propio (\texttt{monitor}) para la lógica de alertas y \textit{drift}. Esta combinación permite que el sistema sea autocontenido (un único \texttt{docker compose up}) y se evita la dependencia de plataformas externas (Grafana Cloud, Datadog, etc.). El detalle de cada decisión se resume en la Tabla~\ref{tab:hito5-tecnologias}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l p{4.5cm} p{6cm}}
+\toprule
+\textbf{Pieza} & \textbf{Tecnología elegida} & \textbf{Justificación} \\
+\midrule
+Instrumentación de la API & \texttt{prometheus-fastapi-instrumentator} + \texttt{prometheus\_client} & Estándar \textit{de facto} en FastAPI. Expone \texttt{/metrics} sin código adicional para las métricas HTTP (peticiones por segundo, latencia, códigos de estado). \\
+Recolector de series temporales & Prometheus 2.51 & Pull-based, retención local de 7 días, sin necesidad de servidor externo. \\
+Servicio de alertas y \textit{drift} & Python 3.11 (\texttt{psutil}, \texttt{requests}) & La lógica de drift estadístico y la deduplicación de alertas son específicas del dominio; un servicio propio mantiene la lógica visible y modificable. Evita la complejidad de \texttt{Alertmanager} para los pocos canales que necesitamos. \\
+Canal de alertas & Bot de Telegram & Sin coste, sin servidor SMTP, sin dependencias corporativas. Trivial de configurar para una demo académica y suficiente para mostrar el patrón ``alerta inmediata + recordatorio + recuperación''. \\
+Métricas de modelo & \textit{Sliding window} en memoria + \texttt{scikit-learn} en la API & Las predicciones reciben un \texttt{request\_id} (UUID) y se correlacionan con su etiqueta real diferida vía \texttt{/feedback}. \texttt{scikit-learn} ya está en el contenedor de inferencia. \\
+\bottomrule
+\end{tabular}
+\caption{Tecnologías seleccionadas para el Hito 5.}
+\label{tab:hito5-tecnologias}
+\end{table}
+
+\section{Arquitectura de observabilidad}
+\label{sec:hito5-arquitectura}
+
+El despliegue del Hito 4 se amplía con dos contenedores nuevos (\texttt{prometheus} y \texttt{monitor}) y se modifica el contenedor \texttt{inference} para que exponga métricas y registre cada predicción. El resto de servicios (\texttt{bootstrap}, \texttt{training}) permanece inalterado, lo que confirma que la arquitectura del Hito 4 estaba lista para evolucionar como se anticipaba en la Sección~\ref{sec:hito4-limitaciones}.
+
+\begin{itemize}
+    \item \texttt{inference} expone \texttt{/metrics} en formato Prometheus con (a) métricas HTTP autoinstrumentadas (peticiones por segundo, latencia por \textit{endpoint}, códigos de estado), (b) \textit{gauges} propios de sistema (\texttt{guardianai\_cpu\_percent}, \texttt{guardianai\_ram\_percent}), (c) métricas de negocio (\texttt{guardianai\_fraud\_rate}, \texttt{guardianai\_predictions\_total}) y (d) métricas de calidad del modelo confirmadas (\texttt{guardianai\_model\_f1}, \texttt{\_auc}, \texttt{\_precision}, \texttt{\_recall}, \texttt{\_confirmados}).
+    \item Cada llamada a \texttt{/predict} y \texttt{/predict/batch} se registra como una línea JSON en \texttt{shared/logs/predictions\_log.jsonl} con \textit{todas} las features de entrada, el \texttt{request\_id} asignado, la probabilidad, la etiqueta predicha y la decisión. Este \textit{log} alimenta el cálculo de \textit{drift} en el contenedor \texttt{monitor}.
+    \item \texttt{prometheus} hace \textit{scraping} de \texttt{inference} cada 15 segundos y conserva las series 7 días localmente.
+    \item \texttt{monitor} es un servicio Python en bucle infinito (cada \texttt{CHECK\_INTERVAL=60s} por defecto) que mide CPU/RAM, lee el \textit{log} de predicciones, consulta \texttt{/model-metrics} y decide si emite alertas por Telegram. Tiene montado \texttt{/var/run/docker.sock} para poder disparar reentrenamientos cuando \texttt{RETRAIN\_ON\_DRIFT=true}.
+\end{itemize}
+
+\section{Métricas operativas}
+\label{sec:hito5-operativas}
+
+Se cubren los dos ejes pedidos por el enunciado:
+
+\begin{itemize}
+    \item \textbf{Recursos del sistema}: CPU y RAM del contenedor de inferencia, medidos con \texttt{psutil} y publicados como \textit{gauges} Prometheus. El contenedor \texttt{monitor} los relee cada ciclo para alertar cuando superan los umbrales (\texttt{CPU\_THRESHOLD=80\%} y \texttt{RAM\_THRESHOLD=80\%} por defecto).
+    \item \textbf{Tráfico HTTP}: \texttt{prometheus-fastapi-instrumentator} expone automáticamente \texttt{http\_requests\_total} (contador por \textit{endpoint} y código de estado) y \texttt{http\_request\_duration\_seconds} (histograma de latencias). Cualquier \textit{query} PromQL puede derivar peticiones por segundo (\texttt{rate(\dots[1m])}), peticiones por minuto, latencia p50/p95/p99, etc., sin código adicional.
+\end{itemize}
+
+\section{Detección de \textit{data drift}}
+\label{sec:hito5-drift}
+
+El monitor implementa una detección de \textit{drift} estadístico simple y robusta sobre las diez \textit{features} numéricas más relevantes del modelo final (\texttt{income}, \texttt{name\_email\_similarity}, \texttt{customer\_age}, \texttt{days\_since\_request}, \texttt{velocity\_6h/24h/4w}, \texttt{zip\_count\_4w}, \texttt{proposed\_credit\_limit} y \texttt{session\_length\_in\_minutes}). Para cada una se calcula el \textit{z-score} de la media reciente respecto de las estadísticas de referencia del conjunto de entrenamiento:
+\[
+z_f \;=\; \frac{\bigl|\,\bar{x}_f^{\text{reciente}} - \mu_f^{\text{ref}}\,\bigr|}{\sigma_f^{\text{ref}}}.
+\]
+Si $z_f > 3$ en cualquier \textit{feature} (umbral configurable vía \texttt{DRIFT\_Z\_THRESHOLD}), se considera que esa variable presenta \textit{drift}. El cálculo se activa cuando hay al menos \texttt{MIN\_PREDICTIONS\_DRIFT=30} predicciones en la ventana, evitando alarmas en el arranque. Las estadísticas de referencia se cargan desde \texttt{shared/artifacts/reference\_stats.json} si existen, con un \textit{fallback} a valores codificados en el monitor para preservar el comportamiento \textit{plug-and-play}.
+
+Esta estrategia es deliberadamente más conservadora que un test estadístico completo (Kolmogórov-Smirnov, PSI): el coste es baja sensibilidad a cambios de forma sin cambio de media, pero la ventaja es no necesitar guardar las distribuciones de referencia completas y producir un mensaje de alerta autodescriptivo (``\texttt{velocity\_6h: media=14500.2 (ref=4500, z=3.6)}'').
+
+\section{Métricas del modelo y \textit{ground truth} diferido}
+\label{sec:hito5-modelo}
+
+El enunciado pide exponer métricas clásicas de modelo ($F_1$, AUC, precisión). En un escenario real de detección de fraude estas métricas son \textbf{imposibles de calcular en tiempo real}: cuando la API decide \texttt{PERMITIR} o \texttt{BLOQUEAR} una transacción no se conoce la etiqueta verdadera; ésta llega más tarde, a través de reclamaciones del cliente o \textit{chargebacks}, con latencias que oscilan entre horas y semanas. Cualquier sistema de monitorización honesto debe asumir esta brecha temporal.
+
+La solución implementada modela explícitamente esa brecha con tres piezas:
+
+\begin{enumerate}
+    \item \textbf{Identificación de la predicción}. Cada llamada a \texttt{/predict} devuelve un \texttt{request\_id} (UUID) además de la decisión. El \texttt{request\_id} se almacena en una caché en memoria (\texttt{ModelMetricsTracker}) junto con la probabilidad y la etiqueta predicha.
+    \item \textbf{Recepción del \textit{ground truth}}. Un nuevo \textit{endpoint} \texttt{POST /feedback} acepta pares $\{\texttt{request\_id}, \texttt{fraud\_bool\_real}\}$ y los correlaciona con la predicción correspondiente. En producción real este \textit{endpoint} sería llamado por el sistema de \textit{back office} bancario cuando se confirma una reclamación; en el sistema demostrador lo usa el simulador de anomalías (Sección~\ref{sec:hito5-simulacion}).
+    \item \textbf{Ventana móvil de métricas}. Cuando un \textit{feedback} se correlaciona, se añade el triplete (probabilidad, etiqueta predicha, etiqueta real) a una ventana de las últimas $N=200$ predicciones confirmadas. Se recalculan $F_1$, precisión, \textit{recall} y AUC con \texttt{scikit-learn} y se publican como \textit{gauges} Prometheus y vía \texttt{GET /model-metrics}.
+\end{enumerate}
+
+La ventana móvil tiene dos propiedades deseables: (a) reacciona en tiempo casi real a cambios de calidad sin perder muestras pasadas (estabilidad estadística), y (b) permite alertar cuando $F_1$ cae por debajo de un umbral configurable (\texttt{MODEL\_F1\_THRESHOLD=0.20} por defecto). El umbral $0.20$ se ha elegido por debajo del $F_1=0.249$ obtenido en el conjunto de test del Hito 3 (Sección~\ref{sec:h3_resultados}), de modo que sólo dispare ante degradación significativa del modelo en producción.
+
+Es importante reconocer las limitaciones de este diseño: si el \textit{feedback} es sistemáticamente sesgado (por ejemplo, sólo se reciben reclamaciones de transacciones bloqueadas erróneamente, pero no de fraudes que pasaron como legítimos), las métricas en la ventana móvil estarán igualmente sesgadas. Resolverlo en producción requiere combinar el \textit{feedback} explícito con auditorías periódicas de muestras aleatorias, lo cual queda fuera del alcance del Hito 5.
+
+\section{Sistema de alertas y deduplicación}
+\label{sec:hito5-alertas}
+
+El monitor envía mensajes por Telegram cumpliendo un patrón habitual en sistemas de \textit{paging}:
+
+\begin{itemize}
+    \item \textbf{Primera detección $\rightarrow$ alerta inmediata}. En el siguiente ciclo a la aparición del problema.
+    \item \textbf{Mismo problema persiste $\rightarrow$ recordatorio}. Tras \texttt{ALERT\_REMINDER\_HOURS=1} sin que el problema desaparezca, se reenvía la alerta marcada como recordatorio.
+    \item \textbf{Problema resuelto $\rightarrow$ notificación de recuperación}. Una sola vez cuando todas las categorías vuelven al estado limpio.
+    \item \textbf{No \textit{spam}}. El estado de las cinco categorías (\texttt{cpu}, \texttt{ram}, \texttt{drift}, \texttt{fraud\_rate}, \texttt{model\_f1}) se persiste en \texttt{shared/logs/alert\_state.json}; sólo se envía mensaje cuando el estado \textit{cambia} o cuando expira el recordatorio.
+\end{itemize}
+
+Las cinco categorías cubren con holgura el requisito del enunciado (``al menos una alerta para métrica operativa y una para métrica de modelo''): CPU y RAM son operativas; \textit{drift}, tasa de fraude y $F_1$ son de modelo, cada una de naturaleza distinta (estadística de entrada, distribución de salida y calidad sobre verdad confirmada).
+
+\section{Simulación de entorno anómalo}
+\label{sec:hito5-simulacion}
+
+El \textit{script} \texttt{deployment/simulate\_anomaly.py} envía ráfagas de transacciones con \textit{features} típicas de fraude masivo (\texttt{velocity\_6h=15\,000}, \texttt{foreign\_request=1}, \texttt{session\_length=0.1\,min}, etc.) y dispara las alertas en menos de un ciclo del monitor. Con la bandera \texttt{--feedback} el simulador genera, en hilos independientes, el envío diferido de \texttt{/feedback} con la etiqueta real (1 si la plantilla era de fraude, 0 si era legítima), con retrasos aleatorios en \texttt{[feedback\_delay\_min, feedback\_delay\_max]} segundos. Este patrón reproduce, a escala temporal comprimida, el flujo real de confirmación de \textit{chargebacks}.
+
+Un uso típico en demo es:
+
+\begin{verbatim}
+python simulate_anomaly.py --n 100 --modo mixto --feedback \
+    --feedback-delay-min 2 --feedback-delay-max 8
+\end{verbatim}
+
+Tras la ejecución pueden consultarse las métricas resultantes en \texttt{GET /model-metrics} o directamente en Prometheus (\texttt{guardianai\_model\_f1}, etc.).
+
+\section{\textit{Feedback loop}: reentrenamiento y recarga en caliente}
+\label{sec:hito5-loop}
+
+El bucle se cierra con dos piezas. La primera es el reentrenamiento: si \texttt{RETRAIN\_ON\_DRIFT=true} y se detecta \textit{drift}, el monitor invoca por el socket de Docker el contenedor \texttt{training}, que regenera \texttt{modelo\_final.joblib}, \texttt{preprocesador.joblib} y \texttt{metadatos.json} en el volumen compartido. Este reentrenamiento es \textit{simple} (mismo \textit{pipeline} del NB05, sin búsqueda de hiperparámetros salvo que se fuerce \texttt{SEARCH\_MODE=full}), lo que cumple el requisito mínimo del enunciado.
+
+La segunda es la recarga en caliente. Sin ella, el modelo nuevo permanecería en disco hasta que un humano reiniciase el contenedor. Para evitarlo se ha añadido el \textit{endpoint} \texttt{POST /reload} en la API, que reinstancia el \texttt{FraudPredictor} (recargando los tres artefactos) y reinicia la ventana móvil de métricas del modelo. Tras un reentrenamiento exitoso, el monitor llama automáticamente a \texttt{/reload} y publica una notificación con la nueva versión y el umbral activo. Esto convierte el \textit{loop} en autosostenido: detección $\rightarrow$ reentrenamiento $\rightarrow$ publicación $\rightarrow$ vuelta al estado de monitorización sin intervención humana.
+
+Por seguridad, \texttt{RETRAIN\_ON\_DRIFT} está desactivado por defecto: habilitarlo implica que el contenedor monitor tiene capacidad para lanzar contenedores en el \textit{host}, un privilegio que debe estar restringido a entornos de demo.
+
+\section{Limitaciones reconocidas y siguientes pasos}
+\label{sec:hito5-limitaciones}
+
+\begin{itemize}
+    \item \textbf{Visualización}. No se incluye un \textit{dashboard} Grafana. Las series están en Prometheus y se consultan vía PromQL; añadir Grafana sería un contenedor adicional sin código nuevo.
+    \item \textbf{Persistencia de las métricas del modelo}. La ventana móvil vive en memoria; un \texttt{docker compose restart} la borra. El \textit{feedback\_log.jsonl} sí persiste y bastaría para reconstruirla, pero esa reconstrucción al arranque queda fuera de alcance.
+    \item \textbf{Reference \textit{stats} dinámicas}. El entrenamiento no genera todavía \texttt{reference\_stats.json}; el monitor usa los valores por defecto. Producirlo desde el \textit{pipeline} sería una mejora mínima.
+    \item \textbf{Privacidad y normativa}. El \textit{log} de predicciones contiene las 30 \textit{features} de cada solicitud. En producción real esto colisionaría con GDPR/PSD2; un sistema productivo guardaría sólo hashes o agregados a nivel de ventana, no transacciones individuales.
+    \item \textbf{Estrategias avanzadas de despliegue}. No se ha implementado A/B testing ni \textit{champion-challenger}. El reentrenamiento promueve directamente el modelo nuevo sin comparar contra el anterior; un siguiente paso natural es servir ambos en paralelo (\textit{shadow testing}) y promover sólo si las métricas del retador superan las del campeón sobre la misma ventana de \textit{feedback}. La pieza que falta para esto es la convivencia de dos predictores en \texttt{app.state}; el resto de la infraestructura ya está preparada.
+\end{itemize}
+
+\section{Resumen}
+\label{sec:hito5-resumen}
+
+\paragraph{Qué se ha implementado.}
+\begin{itemize}
+    \item Dos contenedores nuevos (\texttt{prometheus}, \texttt{monitor}) integrados con los del Hito 4.
+    \item Instrumentación de la API con métricas HTTP automáticas y cinco \textit{gauges} propios de modelo (\texttt{f1}, \texttt{auc}, \texttt{precision}, \texttt{recall}, \texttt{confirmados}).
+    \item Detección de \textit{data drift} por \textit{z-score} sobre diez \textit{features} numéricas.
+    \item Tres nuevos \textit{endpoints}: \texttt{/feedback}, \texttt{/model-metrics} y \texttt{/reload}.
+    \item Caché en memoria \texttt{ModelMetricsTracker} para correlacionar predicciones con su \textit{ground truth} diferido por \texttt{request\_id}.
+    \item Sistema de alertas Telegram con deduplicación y recordatorios.
+    \item Simulador \texttt{simulate\_anomaly.py} extendido con feedback diferido en hilos.
+    \item \textit{Feedback loop} completo: drift $\rightarrow$ reentrenamiento $\rightarrow$ recarga en caliente vía \texttt{POST /reload}.
+\end{itemize}
+
+\paragraph{Cómo enlaza con los Hitos previos.} El Hito 5 se monta sobre la API del Hito 4 sin reescribir ningún módulo de éste: el \texttt{FraudPredictor}, el contrato Pydantic de las transacciones y el \textit{pipeline} de entrenamiento siguen siendo los del NB05. Las nuevas piezas se acoplan por composición: un \textit{tracker} en \texttt{app.state}, tres \textit{endpoints} adicionales y dos contenedores satélite. Eso confirma que la separación modular elegida en el Hito 4 era apropiada para evolucionar.
+
+\paragraph{Listo para evolucionar.} El siguiente paso natural es servir dos modelos en paralelo (\textit{champion-challenger}/\textit{shadow}) y promover automáticamente el retador cuando supere al campeón en la ventana de \textit{feedback}. La infraestructura ya soporta todo lo necesario: las métricas comparables, el canal de alertas y la recarga en caliente.
+
 
 % --- BIBLIOGRAFÍA ---
 \begin{thebibliography}{9}
