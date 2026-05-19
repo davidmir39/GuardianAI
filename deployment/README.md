@@ -47,7 +47,7 @@ deployment/
 │   └── prometheus.yml         <- configuracion de Prometheus
 ├── shared/
 │   ├── artifacts/             <- volumen compartido (modelo + preprocesador)
-│   └── logs/                  <- logs de predicciones + estado de alertas (Hito 5)
+│   └── logs/                  <- predictions_log.jsonl + feedback_log.jsonl + alert_state.json (Hito 5)
 └── data/
     ├── raw/                   <- aqui va Base.csv si quiere reentrenar
     └── samples/               <- JSONs de ejemplo para probar la API
@@ -61,7 +61,8 @@ deployment/
 - (Opcional) `curl` o Postman para probar la API.
 - (Opcional) Python con `requests` instalado para ejecutar `simulate_anomaly.py`.
 - (Opcional, solo si reentrena) [Base.csv del Bank Account Fraud Suite](https://www.kaggle.com/datasets/sgpjesus/bank-account-fraud-dataset-neurips-2022).
-- (Hito 5) Bot de Telegram — ver seccion de configuracion mas abajo.
+- (Opcional, Hito 5) Bot de Telegram para recibir alertas — sin el, las alertas
+  se siguen viendo en los logs del contenedor `monitor`. Ver configuracion mas abajo.
 
 No se necesita Python ni instalar dependencias en el host: todo corre en Docker.
 
@@ -114,6 +115,7 @@ Respuesta esperada (ejemplo):
 {
   "status": "success",
   "model_version": "XGBoost",
+  "request_id": "8e2a3f4b9c1d4e5f6a7b8c9d0e1f2a3b",
   "prediccion": {
     "probabilidad_fraude": 0.0123,
     "etiqueta": 0,
@@ -123,6 +125,10 @@ Respuesta esperada (ejemplo):
   }
 }
 ```
+
+El `request_id` permite enviar despues la etiqueta real via `POST /feedback`
+para que el sistema calcule F1/AUC/precision/recall sobre las predicciones
+confirmadas (ver seccion *Metricas del modelo con ground truth diferido*).
 
 ### Lote de transacciones
 
@@ -144,9 +150,11 @@ curl -X POST http://localhost:8000/predict \
 
 ## Hito 5: Monitorizacion y alertas
 
-### Configuracion del bot de Telegram
+### Configuracion del bot de Telegram (opcional)
 
-Antes de arrancar, es necesario configurar un bot de Telegram para recibir alertas:
+Si quieres recibir las alertas por Telegram, configura un bot. Si no, el
+monitor las loguea por stdout con el prefijo `[TELEGRAM-SIM]` y el sistema
+sigue funcionando igual.
 
 1. Abre Telegram y busca **@BotFather**
 2. Escribe `/newbot` y sigue las instrucciones — te dara un **token**
@@ -168,11 +176,31 @@ TELEGRAM_CHAT_ID=tu_chat_id_aqui
 **Metricas del modelo**:
 - Tasa de fraude en las predicciones recientes
 - Alerta si supera `FRAUD_RATE_THRESHOLD` (por defecto 10%)
+- F1/AUC/precision/recall sobre la ventana movil de predicciones confirmadas
+  (via `/feedback`); alerta si F1 cae por debajo de `MODEL_F1_THRESHOLD`
+  (por defecto 0.20)
 
 **Deteccion de drift**:
 - Compara la distribucion de features de las predicciones recientes
   contra las estadisticas de referencia del entrenamiento
 - Alerta si alguna feature se desvia mas de `DRIFT_Z_THRESHOLD` desviaciones tipicas (por defecto 3.0)
+
+### Metricas del modelo con ground truth diferido
+
+En produccion real las etiquetas no llegan en tiempo real (los chargebacks
+tardan dias o semanas). El sistema modela esa brecha:
+
+1. Cada `/predict` devuelve un `request_id` unico.
+2. Cuando se conoce la etiqueta real, se envia a `POST /feedback`:
+   ```bash
+   curl -X POST http://localhost:8000/feedback \
+        -H "Content-Type: application/json" \
+        -d '{"request_id": "...", "fraud_bool_real": 1}'
+   ```
+3. La API mantiene una ventana movil de las ultimas N confirmadas y
+   publica F1/AUC/precision/recall en `GET /model-metrics` y como
+   *gauges* Prometheus (`guardianai_model_f1`, `_auc`, `_precision`,
+   `_recall`, `_confirmados`).
 
 ### Sistema de alertas
 
@@ -182,6 +210,8 @@ El monitor implementa deduplicacion inteligente:
 - **Problema persiste** → recordatorio cada `ALERT_REMINDER_HOURS` horas 
 - **Problema resuelto** → notificacion de recuperacion 
 - **No spamea** — no repite la misma alerta en cada ciclo
+
+Cinco categorias deduplicadas: `cpu`, `ram`, `drift`, `fraud_rate`, `model_f1`.
 
 ### Simular un entorno anomalo
 
@@ -199,6 +229,21 @@ Modos disponibles:
 
 En menos de 60 segundos deberia llegar una alerta por Telegram con el drift detectado.
 
+Para alimentar tambien las metricas del modelo (F1/AUC/precision/recall),
+anade `--feedback`. Cada prediccion programa un hilo que envia `/feedback`
+con la etiqueta real tras un retraso aleatorio (simulando chargebacks):
+
+```bash
+python simulate_anomaly.py --n 100 --modo mixto --feedback \
+    --feedback-delay-min 2 --feedback-delay-max 8
+```
+
+Despues consulta las metricas resultantes:
+
+```bash
+curl http://localhost:8000/model-metrics
+```
+
 ### Limpiar el estado entre pruebas
 
 Si quiere resetear el sistema para una nueva demostracion:
@@ -206,12 +251,14 @@ Si quiere resetear el sistema para una nueva demostracion:
 **En Windows (PowerShell):**
 ```powershell
 [System.IO.File]::WriteAllText("shared\logs\predictions_log.jsonl", "")
+[System.IO.File]::WriteAllText("shared\logs\feedback_log.jsonl", "")
 [System.IO.File]::WriteAllText("shared\logs\alert_state.json", "")
 ```
 
 **En Linux/Mac:**
 ```bash
 > shared/logs/predictions_log.jsonl
+> shared/logs/feedback_log.jsonl
 > shared/logs/alert_state.json
 ```
 
@@ -225,8 +272,9 @@ RETRAIN_ON_DRIFT=true
 ```
 
 Y asegurese de tener `Base.csv` en `deployment/data/raw/`. El contenedor
-de monitor lanzara el reentrenamiento automaticamente y le notificara
-el resultado por Telegram.
+de monitor lanzara el reentrenamiento automaticamente, notificara el
+resultado por Telegram y llamara a `POST /reload` para que el modelo
+nuevo entre en produccion sin reiniciar el contenedor de inferencia.
 
 ---
 
@@ -247,31 +295,37 @@ Si quiere generar un modelo nuevo en lugar de usar el preentrenado:
    SEARCH_MODE=full docker compose --profile train run --rm training
    ```
 
-4. Recargue la API para que tome el nuevo modelo:
+4. Recargue la API para que tome el nuevo modelo sin reiniciar el contenedor:
 
    ```bash
-   docker compose restart inference
+   curl -X POST http://localhost:8000/reload
    ```
+
+   (Si prefiere reiniciar el contenedor: `docker compose restart inference`.)
 
 ---
 
 ## Endpoints de la API
 
-| Metodo | Ruta              | Descripcion                                       |
-|--------|-------------------|---------------------------------------------------|
-| GET    | `/`               | Redirige a `/docs` (Swagger UI).                  |
-| GET    | `/docs`           | Documentacion interactiva (auto-generada).        |
-| GET    | `/health`         | Salud del servicio (modelo cargado, umbral...).   |
-| GET    | `/metadata`       | Metadatos del modelo (metricas test, fecha, ...). |
-| GET    | `/metrics`        | Metricas Prometheus (HTTP, CPU, RAM, fraude).     |
-| POST   | `/predict`        | Prediccion para 1 transaccion.                    |
-| POST   | `/predict/batch`  | Prediccion para hasta 10.000 transacciones.       |
+| Metodo | Ruta              | Descripcion                                                      |
+|--------|-------------------|------------------------------------------------------------------|
+| GET    | `/`               | Redirige a `/docs` (Swagger UI).                                 |
+| GET    | `/docs`           | Documentacion interactiva (auto-generada).                       |
+| GET    | `/health`         | Salud del servicio (modelo cargado, umbral...).                  |
+| GET    | `/metadata`       | Metadatos del modelo (metricas test, fecha, ...).                |
+| GET    | `/metrics`        | Metricas Prometheus (HTTP, CPU, RAM, fraude, F1/AUC del modelo). |
+| POST   | `/predict`        | Prediccion para 1 transaccion. Devuelve `request_id`.            |
+| POST   | `/predict/batch`  | Prediccion para hasta 10.000 transacciones. Cada item con `request_id`. |
+| POST   | `/feedback`       | Recibe la etiqueta real diferida `{request_id, fraud_bool_real}`. |
+| GET    | `/model-metrics`  | Snapshot de F1/AUC/precision/recall sobre la ventana confirmada. |
+| POST   | `/reload`         | Recarga modelo + preprocesador + metadatos sin reiniciar.        |
 
 Codigos de error tipicos:
 
 - `422 Unprocessable Entity` -- el JSON no respeta el contrato (`schemas.py`).
 - `503 Service Unavailable` -- los artefactos no estan cargados.
 - `400 Bad Request` -- error en el `predict` (preprocesador, modelo).
+- `500 Internal Server Error` -- fallo al recargar el modelo en `/reload`.
 
 ---
 
@@ -305,6 +359,8 @@ Copie `.env.example` a `.env` y modifique lo que necesite.
 | `MIN_PREDICTIONS_DRIFT`  | `30`    | Minimo de predicciones para analizar drift.       |
 | `ALERT_REMINDER_HOURS`   | `1`     | Horas entre recordatorios si el problema persiste.|
 | `RETRAIN_ON_DRIFT`       | `false` | Reentrenamiento automatico al detectar drift.     |
+| `MODEL_F1_THRESHOLD`     | `0.20`  | F1 minimo sobre la ventana confirmada (alerta si cae). |
+| `MIN_CONFIRMADOS_F1`     | `30`    | Confirmados minimos antes de evaluar F1.          |
 
 ---
 
