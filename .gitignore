@@ -240,7 +240,7 @@ __marimo__/
 *.vtc
 *.fls
 *.synctex.gz
-*.pdf
+
 Base.csv
 
 ### Modelos y artefactos entrenados (no versionar) ###
